@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.0.5 - 2026-05-08
+
+### Added
+- "Sync bestellingen ({site})"-knop op de `EtsySettingsPage` (verschijnt alleen wanneer site gekoppeld is + `shop_id` bekend). Klik triggert direct `Etsy::syncOrders($siteId)` met een confirm-modal. Notification toont aantal geïmporteerd + eventuele fouten. Daarmee hoef je niet op de 5-min-cron te wachten om net-geplaatste Etsy bestellingen binnen te halen.
+
 ## v4.0.4 - 2026-05-08
 
 ### Fixed

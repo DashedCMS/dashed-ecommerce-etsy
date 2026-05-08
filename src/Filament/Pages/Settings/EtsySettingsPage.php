@@ -155,6 +155,37 @@ class EtsySettingsPage extends Page
                         }
                     });
             }
+
+            if (Etsy::isConnected($siteId) && Etsy::shopId($siteId)) {
+                $actions[] = Action::make("etsy_sync_orders_{$siteId}")
+                    ->label('Sync bestellingen ('.$site['name'].')')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->modalHeading('Etsy bestellingen nu syncen?')
+                    ->modalDescription('Haalt nieuwe receipts op vanaf de laatste-sync-cursor en maakt of update Dashed orders. Bestaande orders worden niet dubbel aangemaakt.')
+                    ->modalSubmitActionLabel('Sync nu')
+                    ->action(function () use ($siteId, $site) {
+                        $result = Etsy::syncOrders($siteId);
+                        $imported = (int) ($result['imported'] ?? 0);
+                        $errors = $result['errors'] ?? [];
+
+                        if (! empty($errors)) {
+                            Notification::make()
+                                ->title($site['name'].': '.$imported.' geïmporteerd, '.count($errors).' fouten')
+                                ->body(implode("\n", array_slice($errors, 0, 3)))
+                                ->warning()
+                                ->send();
+
+                            return;
+                        }
+
+                        Notification::make()
+                            ->title($site['name'].': '.$imported.' '.($imported === 1 ? 'bestelling' : 'bestellingen').' gesynced')
+                            ->success()
+                            ->send();
+                    });
+            }
         }
 
         return $actions;
