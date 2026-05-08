@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.2.3 - 2026-05-08
+
+### Fixed
+- Route-registratie via `loadRoutesFrom()` in `configurePackage()` werd op productie niet betrouwbaar geladen, waardoor `route('dashed.etsy.oauth.start')` een `RouteNotFoundException` gaf. Nu via spatie/laravel-package-tools' standaard `->hasRoutes(['oauth'])` convention zodat de route in de juiste boot-fase wordt geregistreerd. `routes/oauth.php` blijft op dezelfde plek met dezelfde inhoud.
+
 ## v4.2.2 - 2026-05-08
 
 ### Added

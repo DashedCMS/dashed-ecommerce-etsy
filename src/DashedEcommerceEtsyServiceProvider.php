@@ -50,10 +50,10 @@ class DashedEcommerceEtsyServiceProvider extends PackageServiceProvider
     public function configurePackage(Package $package): void
     {
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
-        $this->loadRoutesFrom(__DIR__.'/../routes/oauth.php');
 
         $package
             ->name('dashed-ecommerce-etsy')
+            ->hasRoutes(['oauth'])
             ->hasCommands([
                 SyncOrdersFromEtsyCommand::class,
                 RefreshEtsyToken::class,
