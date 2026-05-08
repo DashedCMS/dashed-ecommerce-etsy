@@ -31,8 +31,10 @@ class EtsySettingsPage extends Page
     {
         $formData = [];
         foreach (Sites::getSites() as $site) {
-            $formData["etsy_client_id_{$site['id']}"] = Customsetting::get('etsy_client_id', $site['id']);
-            $formData["etsy_client_secret_{$site['id']}"] = Customsetting::get('etsy_client_secret', $site['id']);
+            $siteId = (string) $site['id'];
+            $formData["etsy_client_id_{$siteId}"] = Customsetting::get('etsy_client_id', $siteId);
+            $formData["etsy_client_secret_{$siteId}"] = Customsetting::get('etsy_client_secret', $siteId);
+            $formData["etsy_redirect_uri_{$siteId}"] = url('/dashed/etsy/oauth/callback?site_id='.urlencode($siteId));
         }
 
         $this->form->fill($formData);
@@ -48,6 +50,8 @@ class EtsySettingsPage extends Page
                 : 'Niet gekoppeld';
             $error = (string) (Customsetting::get('etsy_connection_error', $siteId, '') ?: '');
 
+            $redirectUri = url('/dashed/etsy/oauth/callback?site_id='.urlencode($siteId));
+
             $tabs[] = Tab::make($siteId)
                 ->label(ucfirst($site['name']))
                 ->schema([
@@ -56,6 +60,14 @@ class EtsySettingsPage extends Page
                         ->columnSpan(['default' => 1, 'lg' => 2]),
                     TextEntry::make("etsy_status_{$siteId}_value")
                         ->state($statusText.($error ? "\n".$error : ''))
+                        ->columnSpan(['default' => 1, 'lg' => 2]),
+                    TextInput::make("etsy_redirect_uri_{$siteId}")
+                        ->label('Redirect URI (kopieer naar Etsy app-instellingen)')
+                        ->helperText('Voeg deze URL exact toe als "Callback URL" in https://www.etsy.com/developers/your-apps zodat de OAuth-koppeling werkt.')
+                        ->default($redirectUri)
+                        ->readOnly()
+                        ->dehydrated(false)
+                        ->extraAttributes(['onclick' => 'this.select()'])
                         ->columnSpan(['default' => 1, 'lg' => 2]),
                     TextInput::make("etsy_client_id_{$siteId}")
                         ->label('Etsy keystring (client_id)')

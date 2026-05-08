@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.0.1 - 2026-05-08
+
+### Added
+- Read-only "Redirect URI"-veld per site op `EtsySettingsPage`. Toont de exacte callback-URL (`<host>/dashed/etsy/oauth/callback?site_id=<site>`) die in de Etsy developer console als "Callback URL" moet worden ingesteld. Klik selecteert de tekst voor snel kopiëren.
+
 ## v4.0.0 - 2026-05-08
 
 ### Added
