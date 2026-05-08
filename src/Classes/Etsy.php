@@ -405,6 +405,30 @@ class Etsy
         Customsetting::set('etsy_token_expires_at', now()->addSeconds($ttl)->toIso8601String(), $siteId);
     }
 
+    /**
+     * Haal shop_id opnieuw op voor een gekoppelde site. Bruikbaar wanneer
+     * de eerste fetch tijdens OAuth-koppeling faalde of een leeg resultaat
+     * gaf. user_id wordt afgeleid uit het access_token (format: <user_id>.<token>).
+     */
+    public static function syncShopId(?string $siteId = null): ?string
+    {
+        $siteId ??= Sites::getActive();
+        $accessToken = self::ensureValidAccessToken($siteId);
+        if (! $accessToken) {
+            return null;
+        }
+        $userId = Str::before($accessToken, '.');
+        if (! $userId) {
+            return null;
+        }
+        $shopId = self::fetchShopIdForUser($siteId, $userId);
+        if ($shopId) {
+            Customsetting::set('etsy_shop_id', $shopId, $siteId);
+        }
+
+        return $shopId;
+    }
+
     private static function fetchShopIdForUser(string $siteId, string $userId): ?string
     {
         $accessToken = Customsetting::get('etsy_access_token', $siteId);
@@ -419,13 +443,46 @@ class Etsy
         ])->get(self::API_BASE.'/application/users/'.$userId.'/shops');
 
         if (! $response->successful()) {
+            Customsetting::set('etsy_connection_error', 'Shop fetch faalde: HTTP '.$response->status().' '.substr($response->body(), 0, 300), $siteId);
+            Log::warning('Etsy fetchShopIdForUser failed', [
+                'site_id' => $siteId,
+                'user_id' => $userId,
+                'status' => $response->status(),
+                'body' => substr($response->body(), 0, 500),
+            ]);
+
             return null;
         }
 
         $json = $response->json();
-        if (isset($json['shop_id'])) {
-            return (string) $json['shop_id'];
+
+        // Etsy API kan verschillende shapes terugleveren afhankelijk van
+        // account-type en API-versie:
+        //   - direct shop object: { "shop_id": 1, "shop_name": "..." }
+        //   - paginated wrapper:  { "count": 1, "results": [{ "shop_id": 1 }] }
+        //   - lege: { "count": 0, "results": [] } voor users zonder shop
+        $candidates = [];
+        if (is_array($json)) {
+            $candidates[] = $json['shop_id'] ?? null;
+            if (isset($json['results'][0]['shop_id'])) {
+                $candidates[] = $json['results'][0]['shop_id'];
+            }
+            if (isset($json[0]['shop_id'])) {
+                $candidates[] = $json[0]['shop_id'];
+            }
         }
+
+        foreach ($candidates as $candidate) {
+            if ($candidate !== null && $candidate !== '') {
+                return (string) $candidate;
+            }
+        }
+
+        Log::warning('Etsy shop response zonder shop_id', [
+            'site_id' => $siteId,
+            'user_id' => $userId,
+            'body' => substr((string) $response->body(), 0, 500),
+        ]);
 
         return null;
     }

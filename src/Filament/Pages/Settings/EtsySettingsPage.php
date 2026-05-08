@@ -56,9 +56,11 @@ class EtsySettingsPage extends Page
                 ->label(ucfirst($site['name']))
                 ->schema([
                     TextEntry::make("etsy_status_{$siteId}_label")
+                        ->hiddenLabel()
                         ->state("Etsy voor {$site['name']}")
                         ->columnSpan(['default' => 1, 'lg' => 2]),
                     TextEntry::make("etsy_status_{$siteId}_value")
+                        ->hiddenLabel()
                         ->state($statusText.($error ? "\n".$error : ''))
                         ->columnSpan(['default' => 1, 'lg' => 2]),
                     TextInput::make("etsy_redirect_uri_{$siteId}")
@@ -131,6 +133,28 @@ class EtsySettingsPage extends Page
                 ->label($label)
                 ->icon('heroicon-o-link')
                 ->url(fn (): string => route('dashed.etsy.oauth.start', ['siteId' => $siteId]));
+
+            if (Etsy::isConnected($siteId) && ! Etsy::shopId($siteId)) {
+                $actions[] = Action::make("etsy_sync_shop_{$siteId}")
+                    ->label('Werk shop_id bij ('.$site['name'].')')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->action(function () use ($siteId, $site) {
+                        $shopId = Etsy::syncShopId($siteId);
+                        if ($shopId) {
+                            Notification::make()
+                                ->title('Shop_id opgehaald: '.$shopId)
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('Kon shop_id niet ophalen voor '.$site['name'])
+                                ->body('Check de connection-error en/of laravel.log voor de API-respons.')
+                                ->danger()
+                                ->send();
+                        }
+                    });
+            }
         }
 
         return $actions;

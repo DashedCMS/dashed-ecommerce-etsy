@@ -2,6 +2,15 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.0.4 - 2026-05-08
+
+### Fixed
+- Settings page: `TextEntry`-velden voor "Etsy voor {site}" en de status-tekst tonen nu geen field-naam-label meer ("Etsy status site label" / "Etsy status site value"). `->hiddenLabel()` toegepast.
+- `Etsy::fetchShopIdForUser()` is robuuster: ondersteunt drie response-shapes (direct shop-object, `{count, results: [...]}` paginated wrapper, lijst-response) zodat het `shop_id`-veld altijd correct geëxtraheerd wordt. Bij faalde fetch wordt nu de error-body in `etsy_connection_error` opgeslagen en gelogd voor diagnose.
+
+### Added
+- Nieuwe `Etsy::syncShopId()` publieke methode + "Werk shop_id bij"-knop op de settings page. Als een site wel gekoppeld is maar nog geen `shop_id` heeft (bv. door een stille fetch-fout tijdens OAuth), kan de admin met één klik de shop opnieuw ophalen zonder de hele OAuth-flow opnieuw te doen.
+
 ## v4.0.3 - 2026-05-08
 
 ### Fixed
