@@ -1,0 +1,38 @@
+{
+    "name": "dashed/dashed-ecommerce-etsy",
+    "description": "Etsy integration for Dashed CMS",
+    "keywords": [
+        "Dashed",
+        "laravel",
+        "dashed-ecommerce-etsy",
+        "etsy"
+    ],
+    "homepage": "https://github.com/Dashed-DEV/dashed-ecommerce-etsy",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Robin van Maasakker",
+            "email": "robin@dashed.nl",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.3|^8.4",
+        "spatie/laravel-package-tools": "^1.16"
+    },
+    "autoload": {
+        "psr-4": {
+            "Dashed\\DashedEcommerceEtsy\\": "src",
+            "Dashed\\DashedEcommerceEtsy\\Database\\Factories\\": "database/factories"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Dashed\\DashedEcommerceEtsy\\DashedEcommerceEtsyServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

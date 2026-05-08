@@ -1,0 +1,135 @@
+<?php
+
+namespace Dashed\DashedEcommerceEtsy\Filament\Pages\Settings;
+
+use Dashed\DashedCore\Classes\Sites;
+use Dashed\DashedCore\Models\Customsetting;
+use Dashed\DashedCore\Traits\HasSettingsPermission;
+use Dashed\DashedEcommerceEtsy\Classes\Etsy;
+use Filament\Actions\Action;
+use Filament\Forms\Components\TextInput;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
+use Filament\Pages\Page;
+use Filament\Schemas\Components\Tabs;
+use Filament\Schemas\Components\Tabs\Tab;
+use Filament\Schemas\Schema;
+
+class EtsySettingsPage extends Page
+{
+    use HasSettingsPermission;
+
+    protected static bool $shouldRegisterNavigation = false;
+
+    protected static ?string $title = 'Etsy';
+
+    protected string $view = 'dashed-core::settings.pages.default-settings';
+
+    public array $data = [];
+
+    public function mount(): void
+    {
+        $formData = [];
+        foreach (Sites::getSites() as $site) {
+            $formData["etsy_client_id_{$site['id']}"] = Customsetting::get('etsy_client_id', $site['id']);
+            $formData["etsy_client_secret_{$site['id']}"] = Customsetting::get('etsy_client_secret', $site['id']);
+        }
+
+        $this->form->fill($formData);
+    }
+
+    public function form(Schema $schema): Schema
+    {
+        $tabs = [];
+        foreach (Sites::getSites() as $site) {
+            $siteId = (string) $site['id'];
+            $statusText = Etsy::isConnected($siteId)
+                ? 'Etsy is gekoppeld voor '.$site['name'].' (shop_id: '.(Etsy::shopId($siteId) ?: '?').')'
+                : 'Niet gekoppeld';
+            $error = (string) (Customsetting::get('etsy_connection_error', $siteId, '') ?: '');
+
+            $tabs[] = Tab::make($siteId)
+                ->label(ucfirst($site['name']))
+                ->schema([
+                    TextEntry::make("etsy_status_{$siteId}_label")
+                        ->state("Etsy voor {$site['name']}")
+                        ->columnSpan(['default' => 1, 'lg' => 2]),
+                    TextEntry::make("etsy_status_{$siteId}_value")
+                        ->state($statusText.($error ? "\n".$error : ''))
+                        ->columnSpan(['default' => 1, 'lg' => 2]),
+                    TextInput::make("etsy_client_id_{$siteId}")
+                        ->label('Etsy keystring (client_id)')
+                        ->maxLength(255),
+                    TextInput::make("etsy_client_secret_{$siteId}")
+                        ->label('Etsy shared secret')
+                        ->password()
+                        ->revealable()
+                        ->maxLength(255),
+                ])
+                ->columns(['default' => 1, 'lg' => 2]);
+        }
+
+        return $schema->schema([Tabs::make('Sites')->tabs($tabs)])->statePath('data');
+    }
+
+    public function submit()
+    {
+        foreach (Sites::getSites() as $site) {
+            $siteId = (string) $site['id'];
+            $state = $this->form->getState();
+            Customsetting::set('etsy_client_id', $state["etsy_client_id_{$siteId}"] ?? '', $siteId);
+            Customsetting::set('etsy_client_secret', $state["etsy_client_secret_{$siteId}"] ?? '', $siteId);
+        }
+
+        Notification::make()
+            ->title('De Etsy instellingen zijn opgeslagen')
+            ->success()
+            ->send();
+
+        return redirect(self::getUrl());
+    }
+
+    protected function getActions(): array
+    {
+        return $this->getEtsyConnectActions();
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return $this->getEtsyConnectActions();
+    }
+
+    /**
+     * @return array<int, Action>
+     */
+    protected function getEtsyConnectActions(): array
+    {
+        $actions = [];
+        foreach (Sites::getSites() as $site) {
+            $siteId = (string) $site['id'];
+            $label = Etsy::isConnected($siteId)
+                ? 'Opnieuw verbinden ('.$site['name'].')'
+                : 'Verbind '.$site['name'].' met Etsy';
+
+            $actions[] = Action::make("etsy_connect_{$siteId}")
+                ->label($label)
+                ->icon('heroicon-o-link')
+                ->action(function () use ($siteId) {
+                    if (! Etsy::clientId($siteId)) {
+                        Notification::make()
+                            ->title('Vul eerst de keystring + secret in en sla op.')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+                    $redirect = url('/dashed/etsy/oauth/callback?site_id='.urlencode($siteId));
+                    $payload = Etsy::buildAuthorizeUrl($siteId, $redirect);
+
+                    return redirect()->away($payload['url']);
+                });
+        }
+
+        return $actions;
+    }
+}
