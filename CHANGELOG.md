@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.2.2 - 2026-05-08
+
+### Added
+- **BTW-verlegd-detectie**: bij `Etsy::syncOrder()` wordt het buyer-country opgezocht in `ShippingZone` via `ShoppingCart::getShippingZoneByCountry()`. Als de matching zone `vat_reverse_charge = true` heeft (bv. Frankrijk, België) krijgt de Order `vat_reverse_charge=true` en alle OrderProducts (incl. verzendkosten-line) `vat_rate=0` + `btw=0`. De OrderProduct boot-hook wordt na save expliciet overruled via `saveQuietly()` zodat het verlegd-regime ook geldt voor producten met een gematcht Dashed Product (waar de hook anders `product->vat_rate` zou herstellen).
+
 ## v4.2.1 - 2026-05-08
 
 ### Added

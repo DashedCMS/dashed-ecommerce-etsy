@@ -12,6 +12,7 @@ use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
 use Dashed\DashedEcommerceCore\Models\Product;
+use Dashed\DashedEcommerceCore\Models\ShippingZone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -330,6 +331,16 @@ class Etsy
         $shippingCost = self::amount($receipt['total_shipping_cost'] ?? null);
         $shopId = self::shopId($siteId);
 
+        // BTW-verlegd: kijk of er een ShippingZone met vat_reverse_charge actief
+        // is voor het land van de buyer. Etsy levert ISO-codes ("FR", "BE") in
+        // country_iso; ShoppingCart::getShippingZoneByCountry matcht zowel op
+        // naam, ISO-2/3 als demonym/altSpelling.
+        $country = (string) ($receipt['country_iso'] ?? '');
+        $shippingZone = $country !== ''
+            ? \Dashed\DashedEcommerceCore\Classes\ShoppingCart::getShippingZoneByCountry($country)
+            : null;
+        $vatReverseCharge = $shippingZone && (bool) ($shippingZone->vat_reverse_charge ?? false);
+
         $order = new Order();
         $order->user_id = $user->id;
         $order->order_origin = 'etsy';
@@ -348,6 +359,7 @@ class Etsy
         $order->country = (string) ($receipt['country_iso'] ?? '');
         $order->total = self::amount($receipt['grandtotal'] ?? null);
         $order->subtotal = self::amount($receipt['subtotal'] ?? null);
+        $order->vat_reverse_charge = $vatReverseCharge;
         $order->status = 'paid'; // Etsy heeft de betaling al afgehandeld; status altijd paid bij sync
         $order->fulfillment_status = ! empty($receipt['was_shipped']) ? 'shipped' : 'unhandled';
         $order->locale = Locales::getFirstLocale()['id'] ?? 'nl';
@@ -364,7 +376,7 @@ class Etsy
 
         // Lijn-items uit transactions met smart product-match + auto-BTW via boot hook
         foreach (($receipt['transactions'] ?? []) as $transaction) {
-            self::createOrderProduct($order, $transaction);
+            self::createOrderProduct($order, $transaction, $vatReverseCharge);
         }
 
         // Verzendkosten als losse OrderProduct met sku 'shipping_costs'
@@ -375,7 +387,10 @@ class Etsy
             $shippingLine->sku = 'shipping_costs';
             $shippingLine->quantity = 1;
             $shippingLine->price = $shippingCost;
-            $shippingLine->vat_rate = 21;
+            $shippingLine->vat_rate = $vatReverseCharge ? 0 : 21;
+            if ($vatReverseCharge) {
+                $shippingLine->btw = 0;
+            }
             $shippingLine->save();
         }
 
@@ -479,7 +494,7 @@ class Etsy
      *
      * @param  array<string, mixed>  $transaction
      */
-    private static function createOrderProduct(Order $order, array $transaction): void
+    private static function createOrderProduct(Order $order, array $transaction, bool $vatReverseCharge = false): void
     {
         $sku = trim((string) ($transaction['sku'] ?? ''));
         $title = trim((string) ($transaction['title'] ?? ''));
@@ -497,25 +512,31 @@ class Etsy
         $unitPrice = self::amount($transaction['price'] ?? null);
         $orderProduct->price = round($unitPrice * (int) ($transaction['quantity'] ?? 1), 2);
 
-        // vat_rate via product, anders 21% default. OrderProduct boot-hook berekent btw zelf
-        // op creating wanneer die nog niet is gezet.
-        if ($product && $product->vat_rate !== null) {
-            $orderProduct->vat_rate = (int) $product->vat_rate;
-        } else {
-            $orderProduct->vat_rate = 21;
+        // BTW: bij verlegd-regime → 0%, anders product->vat_rate of 21% default.
+        // OrderProduct boot-hook overschrijft op creating onze waarden als
+        // product_id gezet is — daarom doen we de reverse-charge override
+        // ná save zodat 't ongeacht boot-hook blijft staan.
+        if (! $vatReverseCharge) {
+            if ($product && $product->vat_rate !== null) {
+                $orderProduct->vat_rate = (int) $product->vat_rate;
+            } else {
+                $orderProduct->vat_rate = 21;
+            }
         }
         $orderProduct->discount = 0;
 
         // Extra Etsy-info zodat admin kan zien om welke listing/variation het ging
         $orderProduct->product_extras = self::extractProductExtras($transaction);
 
-        // Etsy levert images via apart endpoint per listing; voor nu alleen
-        // listing_image_id opslaan in product_extras (image-url kan later async opgehaald)
-        if (! $product && ! empty($transaction['listing_image_id'])) {
-            $orderProduct->custom_image = null; // bewust leeg; laden zou extra API call vergen
-        }
-
         $orderProduct->save();
+
+        // Forceer 0% BTW bij verlegd-regime; boot-hook had product->vat_rate
+        // anders teruggezet bij gematchte products.
+        if ($vatReverseCharge) {
+            $orderProduct->vat_rate = 0;
+            $orderProduct->btw = 0;
+            $orderProduct->saveQuietly();
+        }
     }
 
     /**
