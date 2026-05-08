@@ -34,6 +34,7 @@ class EtsySettingsPage extends Page
             $siteId = (string) $site['id'];
             $formData["etsy_client_id_{$siteId}"] = Customsetting::get('etsy_client_id', $siteId);
             $formData["etsy_client_secret_{$siteId}"] = Customsetting::get('etsy_client_secret', $siteId);
+            $formData["etsy_shop_id_{$siteId}"] = Customsetting::get('etsy_shop_id', $siteId);
             $formData["etsy_redirect_uri_{$siteId}"] = url('/dashed/etsy/oauth/callback?site_id='.urlencode($siteId));
         }
 
@@ -79,6 +80,11 @@ class EtsySettingsPage extends Page
                         ->password()
                         ->revealable()
                         ->maxLength(255),
+                    TextInput::make("etsy_shop_id_{$siteId}")
+                        ->label('Etsy shop_id (handmatig invullen als auto-fetch faalt)')
+                        ->helperText('Vind je shop_id op https://www.etsy.com/your/shops/me/onboarding/index of in een API-response. Wordt automatisch ingevuld na succesvolle OAuth-koppeling.')
+                        ->numeric()
+                        ->columnSpan(['default' => 1, 'lg' => 2]),
                 ])
                 ->columns(['default' => 1, 'lg' => 2]);
         }
@@ -88,11 +94,15 @@ class EtsySettingsPage extends Page
 
     public function submit()
     {
+        $state = $this->form->getState();
         foreach (Sites::getSites() as $site) {
             $siteId = (string) $site['id'];
-            $state = $this->form->getState();
             Customsetting::set('etsy_client_id', $state["etsy_client_id_{$siteId}"] ?? '', $siteId);
             Customsetting::set('etsy_client_secret', $state["etsy_client_secret_{$siteId}"] ?? '', $siteId);
+            $manualShopId = trim((string) ($state["etsy_shop_id_{$siteId}"] ?? ''));
+            if ($manualShopId !== '') {
+                Customsetting::set('etsy_shop_id', $manualShopId, $siteId);
+            }
         }
 
         Notification::make()

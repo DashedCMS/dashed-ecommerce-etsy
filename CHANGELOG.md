@@ -2,6 +2,12 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.0.7 - 2026-05-08
+
+### Added
+- Handmatig `etsy_shop_id`-veld op de settings page als fallback wanneer de auto-fetch via `/users/{user_id}/shops` faalt. Admin kan de shop_id direct intypen, het opslaan en verder met "Sync bestellingen". Het veld toont de huidige waarde (al ingevulde shop_id of leeg).
+- `submit()` slaat handmatige shop_id-invoer op in `Customsetting('etsy_shop_id')`.
+
 ## v4.0.6 - 2026-05-08
 
 ### Changed
