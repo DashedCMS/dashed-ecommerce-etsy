@@ -7,6 +7,7 @@ use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Route;
 
 class EtsyOAuthCallbackController extends Controller
 {
@@ -21,20 +22,29 @@ class EtsyOAuthCallbackController extends Controller
         $state = (string) $request->query('state', '');
 
         if ($siteId === '' || $code === '' || $state === '') {
-            return redirect('/dashed/settings')
-                ->with('error', 'OAuth callback ontbrak parameters.');
+            return $this->redirectToSettings('OAuth callback ontbrak parameters.', false);
         }
 
         $expectedState = Customsetting::get('etsy_oauth_state', $siteId);
         if ($state !== $expectedState) {
-            return redirect('/dashed/settings')
-                ->with('error', 'OAuth state-mismatch (CSRF). Probeer opnieuw.');
+            return $this->redirectToSettings('OAuth state-mismatch (CSRF). Probeer opnieuw.', false);
         }
 
         $redirectUri = url('/dashed/etsy/oauth/callback?site_id='.urlencode($siteId));
         $ok = Etsy::exchangeCodeForTokens($siteId, $code, $redirectUri);
 
-        return redirect('/dashed/settings')
-            ->with($ok ? 'success' : 'error', $ok ? 'Etsy is gekoppeld.' : 'Koppeling mislukt; check de instellingen.');
+        return $this->redirectToSettings(
+            $ok ? 'Etsy is gekoppeld.' : 'Koppeling mislukt; check de instellingen.',
+            $ok
+        );
+    }
+
+    private function redirectToSettings(string $message, bool $success)
+    {
+        $target = Route::has('filament.dashed.pages.etsy-settings-page')
+            ? route('filament.dashed.pages.etsy-settings-page')
+            : url('/dashed/etsy-settings-page');
+
+        return redirect()->to($target)->with($success ? 'success' : 'error', $message);
     }
 }
