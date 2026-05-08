@@ -123,23 +123,14 @@ class EtsySettingsPage extends Page
                 ? 'Opnieuw verbinden ('.$site['name'].')'
                 : 'Verbind '.$site['name'].' met Etsy';
 
+            // Plain GET link i.p.v. ->action() omdat Livewire externe
+            // redirects niet doorlaat na een action-callback. De
+            // EtsyOAuthStartController doet de server-side redirect naar
+            // Etsy's consent-pagina.
             $actions[] = Action::make("etsy_connect_{$siteId}")
                 ->label($label)
                 ->icon('heroicon-o-link')
-                ->action(function () use ($siteId) {
-                    if (! Etsy::clientId($siteId)) {
-                        Notification::make()
-                            ->title('Vul eerst de keystring + secret in en sla op.')
-                            ->danger()
-                            ->send();
-
-                        return;
-                    }
-                    $redirect = url('/dashed/etsy/oauth/callback?site_id='.urlencode($siteId));
-                    $payload = Etsy::buildAuthorizeUrl($siteId, $redirect);
-
-                    return redirect()->away($payload['url']);
-                });
+                ->url(fn (): string => route('dashed.etsy.oauth.start', ['siteId' => $siteId]));
         }
 
         return $actions;
