@@ -156,7 +156,9 @@ class EtsySettingsPage extends Page
                     });
             }
 
-            if (Etsy::isConnected($siteId) && Etsy::shopId($siteId)) {
+            if (Etsy::isConnected($siteId)) {
+                // shop_id-check zit in Etsy::syncOrders zelf zodat de admin
+                // ook een duidelijke melding krijgt als shop_id ontbreekt.
                 $actions[] = Action::make("etsy_sync_orders_{$siteId}")
                     ->label('Sync bestellingen ('.$site['name'].')')
                     ->icon('heroicon-o-arrow-down-tray')

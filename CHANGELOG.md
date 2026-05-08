@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.0.6 - 2026-05-08
+
+### Changed
+- "Sync bestellingen"-knop verschijnt nu zodra een site gekoppeld is, ook als `shop_id` nog ontbreekt. Voorheen was 'm verborgen achter `shopId() !== null` waardoor admins met een falende shop_id-fetch de knop nooit zagen. De `Etsy::syncOrders()` doet zelf de shop_id-check en geeft een duidelijke foutmelding via de notification als die ontbreekt.
+
 ## v4.0.5 - 2026-05-08
 
 ### Added
