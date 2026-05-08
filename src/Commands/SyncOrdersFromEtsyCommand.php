@@ -25,7 +25,7 @@ class SyncOrdersFromEtsyCommand extends Command
                 continue;
             }
             $result = Etsy::syncOrders($siteId);
-            $this->line("Site {$siteId}: {$result['imported']} geïmporteerd, ".count($result['errors']).' fouten');
+            $this->line("Site {$siteId}: {$result['imported']} geïmporteerd, ".($result['skipped'] ?? 0).' al bekend, '.count($result['errors']).' fouten');
             foreach ($result['errors'] as $error) {
                 $this->warn('  '.$error);
             }

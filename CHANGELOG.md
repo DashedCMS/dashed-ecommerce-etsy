@@ -2,6 +2,17 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.0.8 - 2026-05-08
+
+### Fixed
+- Etsy API `x-api-key` header is nu `<keystring>:<shared_secret>` i.p.v. alleen `<keystring>`. Dat is wat Etsy v3 voor app-tier authenticatie verwacht. Voorheen kreeg iedere API-call een 403 `"Shared secret is required in x-api-key header."` terug, waardoor noch shop_id-fetch noch order-sync werkte. Nieuwe `Etsy::apiKeyHeader()` helper levert de juiste samengestelde waarde.
+- User-class import gecorrigeerd van `Dashed\DashedEcommerceCore\Models\User` naar `Dashed\DashedCore\Models\User` (de echte locatie van de Authenticatable User).
+- `Order` mapping past nu op het Dashed schema: `first_name`/`last_name` (gesplitst uit Etsy's `name` veld via `splitName()`-helper), `house_nr` voor adresregel-2, geen losse `shipping_costs`-kolom (verzendkosten gaan nu als `OrderProduct` met sku `shipping_costs` zoals checkout dat ook doet).
+- `paid_at` en `created_at` worden niet meer in een mass-fillable assign meegenomen (Order heeft die kolommen wel, maar guarded-fields worden via direct assignment + extra save geüpdatet).
+
+### Changed
+- `Etsy::syncOrders()` retourneert nu ook `skipped`-count voor receipts die al bekend waren (geen duplicate insert dankzij `EtsyOrder::etsy_receipt_id` unique-constraint). CLI-output en notification op de settings page tonen "X nieuw, Y al bekend".
+
 ## v4.0.7 - 2026-05-08
 
 ### Added

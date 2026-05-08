@@ -180,11 +180,12 @@ class EtsySettingsPage extends Page
                     ->action(function () use ($siteId, $site) {
                         $result = Etsy::syncOrders($siteId);
                         $imported = (int) ($result['imported'] ?? 0);
+                        $skipped = (int) ($result['skipped'] ?? 0);
                         $errors = $result['errors'] ?? [];
 
                         if (! empty($errors)) {
                             Notification::make()
-                                ->title($site['name'].': '.$imported.' geïmporteerd, '.count($errors).' fouten')
+                                ->title($site['name'].': '.$imported.' nieuw, '.$skipped.' al bekend, '.count($errors).' fouten')
                                 ->body(implode("\n", array_slice($errors, 0, 3)))
                                 ->warning()
                                 ->send();
@@ -193,7 +194,7 @@ class EtsySettingsPage extends Page
                         }
 
                         Notification::make()
-                            ->title($site['name'].': '.$imported.' '.($imported === 1 ? 'bestelling' : 'bestellingen').' gesynced')
+                            ->title($site['name'].': '.$imported.' nieuw, '.$skipped.' al bekend')
                             ->success()
                             ->send();
                     });

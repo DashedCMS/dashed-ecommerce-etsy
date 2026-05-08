@@ -5,11 +5,11 @@ namespace Dashed\DashedEcommerceEtsy\Classes;
 use Carbon\Carbon;
 use Dashed\DashedCore\Classes\Sites;
 use Dashed\DashedCore\Models\Customsetting;
+use Dashed\DashedCore\Models\User;
 use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
 use Dashed\DashedEcommerceCore\Models\Product;
-use Dashed\DashedEcommerceCore\Models\User;
 use Dashed\DashedEcommerceEtsy\Models\EtsyOrder;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -49,6 +49,23 @@ class Etsy
     public static function shopId(?string $siteId = null): ?string
     {
         return Customsetting::get('etsy_shop_id', $siteId ?? Sites::getActive()) ?: null;
+    }
+
+    /**
+     * Etsy verwacht het x-api-key header in formaat <keystring>:<shared_secret>
+     * voor app-tier API-calls. Voorheen stuurden we alleen de keystring,
+     * waardoor Etsy een 403 "Shared secret is required in x-api-key header"
+     * teruggaf. Deze helper levert de juiste samengestelde header-waarde.
+     */
+    public static function apiKeyHeader(?string $siteId = null): ?string
+    {
+        $clientId = self::clientId($siteId);
+        $secret = self::clientSecret($siteId);
+        if (! $clientId || ! $secret) {
+            return null;
+        }
+
+        return $clientId.':'.$secret;
     }
 
     /**
@@ -176,11 +193,11 @@ class Etsy
     public static function api(string $siteId, string $method, string $path, array $options = []): Response
     {
         $accessToken = self::ensureValidAccessToken($siteId);
-        $clientId = self::clientId($siteId);
+        $apiKey = self::apiKeyHeader($siteId);
         $method = strtolower($method);
 
         $request = Http::withHeaders(array_merge([
-            'x-api-key' => $clientId,
+            'x-api-key' => $apiKey,
             'Authorization' => 'Bearer '.$accessToken,
         ], $options['headers'] ?? []));
 
@@ -194,22 +211,23 @@ class Etsy
     }
 
     /**
-     * @return array{imported: int, errors: array<int, string>}
+     * @return array{imported: int, skipped: int, errors: array<int, string>}
      */
     public static function syncOrders(?string $siteId = null): array
     {
         $siteId ??= Sites::getActive();
         if (! self::isConnected($siteId)) {
-            return ['imported' => 0, 'errors' => ['Etsy niet gekoppeld voor site '.$siteId]];
+            return ['imported' => 0, 'skipped' => 0, 'errors' => ['Etsy niet gekoppeld voor site '.$siteId]];
         }
 
         $shopId = self::shopId($siteId);
         if (! $shopId) {
-            return ['imported' => 0, 'errors' => ['Geen shop_id bekend voor site '.$siteId]];
+            return ['imported' => 0, 'skipped' => 0, 'errors' => ['Geen shop_id bekend voor site '.$siteId]];
         }
 
         $minCreated = (int) (Customsetting::get('etsy_min_created_after', $siteId, now()->subDays(7)->timestamp));
         $imported = 0;
+        $skipped = 0;
         $errors = [];
         $cursorMax = $minCreated;
 
@@ -238,8 +256,13 @@ class Etsy
 
             foreach ($results as $receipt) {
                 try {
+                    $existedBefore = EtsyOrder::where('etsy_receipt_id', (string) ($receipt['receipt_id'] ?? ''))->exists();
                     self::syncOrder($siteId, $receipt);
-                    $imported++;
+                    if ($existedBefore) {
+                        $skipped++;
+                    } else {
+                        $imported++;
+                    }
                     $cursorMax = max($cursorMax, (int) ($receipt['created_timestamp'] ?? 0));
                 } catch (Throwable $e) {
                     $errors[] = 'Receipt '.($receipt['receipt_id'] ?? '?').': '.$e->getMessage();
@@ -260,7 +283,7 @@ class Etsy
         Customsetting::set('etsy_min_created_after', $cursorMax, $siteId);
         Customsetting::set('etsy_last_sync_at', now()->toIso8601String(), $siteId);
 
-        return ['imported' => $imported, 'errors' => $errors];
+        return ['imported' => $imported, 'skipped' => $skipped, 'errors' => $errors];
     }
 
     /**
@@ -281,10 +304,16 @@ class Etsy
         $email = (string) ($receipt['buyer_email'] ?? ($receipt['buyer'][0]['email'] ?? ''));
         $email = $email !== '' ? strtolower(trim($email)) : 'etsy-'.$receiptId.'@noemail.local';
 
+        $fullName = trim((string) ($receipt['name'] ?? ''));
+        [$firstName, $lastName] = self::splitName($fullName);
+
         $user = User::firstOrCreate(['email' => $email], [
-            'name' => trim(((string) ($receipt['name'] ?? '')) ?: 'Etsy Klant'),
+            'first_name' => $firstName !== '' ? $firstName : 'Etsy',
+            'last_name' => $lastName !== '' ? $lastName : 'Klant',
             'password' => bcrypt(Str::random(32)),
         ]);
+
+        $shippingCost = self::amount($receipt['total_shipping_cost'] ?? null);
 
         $order = new Order();
         $order->user_id = $user->id;
@@ -292,25 +321,27 @@ class Etsy
         $order->site_id = $siteId;
         $order->invoice_id = 'ETSY-'.$receiptId;
         $order->email = $email;
-        $order->name = (string) ($receipt['name'] ?? '');
+        $order->first_name = $firstName;
+        $order->last_name = $lastName;
         $order->phone_number = (string) ($receipt['buyer_phone'] ?? '');
-        $order->street = trim(((string) ($receipt['first_line'] ?? '')).' '.((string) ($receipt['second_line'] ?? '')));
+        $order->street = trim((string) ($receipt['first_line'] ?? ''));
+        $order->house_nr = trim((string) ($receipt['second_line'] ?? ''));
         $order->zip_code = (string) ($receipt['zip'] ?? '');
         $order->city = (string) ($receipt['city'] ?? '');
         $order->country = (string) ($receipt['country_iso'] ?? '');
         $order->total = self::amount($receipt['grandtotal'] ?? null);
         $order->subtotal = self::amount($receipt['subtotal'] ?? null);
         $order->btw = self::amount($receipt['total_tax_cost'] ?? null);
-        $order->shipping_costs = self::amount($receipt['total_shipping_cost'] ?? null);
         $order->status = ! empty($receipt['was_paid']) ? 'paid' : 'pending';
         $order->fulfillment_status = ! empty($receipt['was_shipped']) ? 'shipped' : 'unhandled';
-        $order->paid_at = ! empty($receipt['was_paid']) && ! empty($receipt['paid_timestamp'])
-            ? Carbon::createFromTimestamp((int) $receipt['paid_timestamp'])
-            : null;
-        $order->created_at = ! empty($receipt['created_timestamp'])
-            ? Carbon::createFromTimestamp((int) $receipt['created_timestamp'])
-            : now();
         $order->save();
+        if (! empty($receipt['was_paid']) && ! empty($receipt['paid_timestamp'])) {
+            $order->updated_at = Carbon::createFromTimestamp((int) $receipt['paid_timestamp']);
+        }
+        if (! empty($receipt['created_timestamp'])) {
+            $order->created_at = Carbon::createFromTimestamp((int) $receipt['created_timestamp']);
+            $order->save();
+        }
 
         foreach (($receipt['transactions'] ?? []) as $transaction) {
             $sku = (string) ($transaction['sku'] ?? '');
@@ -324,6 +355,16 @@ class Etsy
             $orderProduct->quantity = (int) ($transaction['quantity'] ?? 1);
             $orderProduct->price = self::amount($transaction['price'] ?? null);
             $orderProduct->save();
+        }
+
+        if ($shippingCost > 0) {
+            $shippingLine = new OrderProduct();
+            $shippingLine->order_id = $order->id;
+            $shippingLine->name = 'Verzendkosten (Etsy)';
+            $shippingLine->sku = 'shipping_costs';
+            $shippingLine->quantity = 1;
+            $shippingLine->price = $shippingCost;
+            $shippingLine->save();
         }
 
         if (! empty($receipt['was_paid'])) {
@@ -432,13 +473,13 @@ class Etsy
     private static function fetchShopIdForUser(string $siteId, string $userId): ?string
     {
         $accessToken = Customsetting::get('etsy_access_token', $siteId);
-        $clientId = self::clientId($siteId);
-        if (! $accessToken || ! $clientId || ! $userId) {
+        $apiKey = self::apiKeyHeader($siteId);
+        if (! $accessToken || ! $apiKey || ! $userId) {
             return null;
         }
 
         $response = Http::withHeaders([
-            'x-api-key' => $clientId,
+            'x-api-key' => $apiKey,
             'Authorization' => 'Bearer '.$accessToken,
         ])->get(self::API_BASE.'/application/users/'.$userId.'/shops');
 
@@ -485,6 +526,28 @@ class Etsy
         ]);
 
         return null;
+    }
+
+    /**
+     * Etsy receipt heeft één 'name'-veld; Dashed Order heeft first_name +
+     * last_name gescheiden. Splitsen op eerste spatie zodat "Jan de Vries"
+     * = first_name "Jan", last_name "de Vries". Lege of single-word namen
+     * komen volledig in first_name.
+     *
+     * @return array{0: string, 1: string}
+     */
+    private static function splitName(string $fullName): array
+    {
+        $fullName = trim($fullName);
+        if ($fullName === '') {
+            return ['', ''];
+        }
+
+        $parts = preg_split('/\s+/', $fullName, 2) ?: [$fullName];
+        $first = (string) ($parts[0] ?? '');
+        $last = (string) ($parts[1] ?? '');
+
+        return [$first, $last];
     }
 
     /**
