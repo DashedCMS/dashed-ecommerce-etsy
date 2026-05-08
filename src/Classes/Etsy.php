@@ -483,9 +483,8 @@ class Etsy
     {
         $sku = trim((string) ($transaction['sku'] ?? ''));
         $title = trim((string) ($transaction['title'] ?? ''));
-        $listingId = isset($transaction['listing_id']) ? (string) $transaction['listing_id'] : '';
 
-        $product = self::matchProduct($sku, $title, $listingId);
+        $product = self::matchProduct($sku, $title);
 
         $orderProduct = new OrderProduct();
         $orderProduct->order_id = $order->id;
@@ -520,16 +519,20 @@ class Etsy
     }
 
     /**
-     * Probeer een Dashed Product te vinden voor deze Etsy transaction. Volgorde:
+     * Probeer een Dashed Product automatisch te vinden voor deze Etsy
+     * transaction. Geen handmatige koppeling — pure auto-match. Volgorde:
      *   1. SKU exact (Etsy listing-SKU == Dashed product SKU) — sterkste signaal
-     *   2. ProductGroup.etsy_listing_id == transaction.listing_id (handmatige
-     *      koppeling door admin in ProductGroup-edit; meest betrouwbaar
-     *      voor multi-variant Etsy listings) → eerste variant in die group
-     *   3. Product.name exact (case-insensitive) over alle locales
-     *   4. ProductGroup.name exact match → eerste product in die group
-     *   5. Product.name LIKE %title% — laatste-redmiddel fuzzy match
+     *   2. Product.name exact match over alle locales (case-insensitive)
+     *   3. ProductGroup.name exact match → eerste product in die group
+     *   4. Token-match: eerste betekenisvolle token (>=3 chars, non-numeric) van
+     *      de Etsy title is gelijk aan een ProductGroup name in elke locale
+     *      (vangt "Bluma 3D vase" → group "Bluma" of "Bluma 3D vaas")
+     *   5. ProductGroup.name STARTS WITH eerste token van title (vangt verschil
+     *      tussen "vase" en "vaas" zolang het begin-woord matcht)
+     *
+     * Geen LIKE-anywhere-fallback meer: te veel false positives.
      */
-    private static function matchProduct(string $sku, string $title, string $listingId = ''): ?Product
+    private static function matchProduct(string $sku, string $title): ?Product
     {
         if ($sku !== '') {
             $product = Product::where('sku', $sku)->first();
@@ -538,51 +541,41 @@ class Etsy
             }
         }
 
-        // 2. ProductGroup.etsy_listing_id == transaction.listing_id (handmatige koppeling)
-        if ($listingId !== '' && class_exists(\Dashed\DashedEcommerceCore\Models\ProductGroup::class)) {
-            $group = \Dashed\DashedEcommerceCore\Models\ProductGroup::where('etsy_listing_id', $listingId)->first();
-            if ($group) {
-                $variant = Product::where('product_group_id', $group->id)->first();
-                if ($variant) {
-                    return $variant;
-                }
-            }
-        }
-
         if ($title === '') {
             return null;
         }
 
         $titleLower = strtolower($title);
-        $locales = Locales::getLocales();
+        $locales = array_values(array_filter(array_map(
+            fn ($l) => $l['id'] ?? null,
+            Locales::getLocales()
+        )));
+        if (empty($locales)) {
+            return null;
+        }
 
-        // 3. Product.name exact match
-        $product = Product::query()->where(function (Builder $q) use ($titleLower, $locales) {
-            foreach ($locales as $locale) {
-                $localeId = $locale['id'] ?? null;
-                if (! $localeId) {
-                    continue;
+        $matchOnLocale = function (string $modelClass, string $value, string $operator = '=', string $valueSuffix = '') use ($locales) {
+            return $modelClass::query()->where(function (Builder $q) use ($locales, $value, $operator, $valueSuffix) {
+                foreach ($locales as $localeId) {
+                    $q->orWhereRaw(
+                        'LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, ?))) '.$operator.' ?',
+                        ['$."'.$localeId.'"', $value.$valueSuffix]
+                    );
                 }
-                $q->orWhereRaw('LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, ?))) = ?', ['$."'.$localeId.'"', $titleLower]);
-            }
-        })->first();
+            })->first();
+        };
+
+        // 2. Product.name exact match
+        $product = $matchOnLocale(Product::class, $titleLower);
         if ($product) {
             return $product;
         }
 
-        // 4. ProductGroup.name exact match → eerste product in die group
-        if (class_exists(\Dashed\DashedEcommerceCore\Models\ProductGroup::class)) {
-            $group = \Dashed\DashedEcommerceCore\Models\ProductGroup::query()
-                ->where(function (Builder $q) use ($titleLower, $locales) {
-                    foreach ($locales as $locale) {
-                        $localeId = $locale['id'] ?? null;
-                        if (! $localeId) {
-                            continue;
-                        }
-                        $q->orWhereRaw('LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, ?))) = ?', ['$."'.$localeId.'"', $titleLower]);
-                    }
-                })
-                ->first();
+        $hasGroups = class_exists(\Dashed\DashedEcommerceCore\Models\ProductGroup::class);
+
+        // 3. ProductGroup.name exact match → eerste variant
+        if ($hasGroups) {
+            $group = $matchOnLocale(\Dashed\DashedEcommerceCore\Models\ProductGroup::class, $titleLower);
             if ($group) {
                 $variant = Product::where('product_group_id', $group->id)->first();
                 if ($variant) {
@@ -591,59 +584,87 @@ class Etsy
             }
         }
 
-        // 5. LIKE %title% over locales — laatste fuzzy fallback
-        $like = '%'.strtolower($title).'%';
-        $product = Product::query()->where(function (Builder $q) use ($like, $locales) {
-            foreach ($locales as $locale) {
-                $localeId = $locale['id'] ?? null;
-                if (! $localeId) {
-                    continue;
-                }
-                $q->orWhereRaw('LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, ?))) LIKE ?', ['$."'.$localeId.'"', $like]);
-            }
-        })->first();
+        // Tokenize voor fallback-strategieën
+        $tokens = array_values(array_filter(
+            preg_split('/[\s\-_,]+/', $titleLower) ?: [],
+            fn ($t) => strlen((string) $t) >= 3 && ! ctype_digit((string) $t)
+        ));
 
-        return $product;
+        if (empty($tokens) || ! $hasGroups) {
+            return null;
+        }
+
+        // 4. Token == ProductGroup name (in any locale)
+        foreach ($tokens as $token) {
+            $group = $matchOnLocale(\Dashed\DashedEcommerceCore\Models\ProductGroup::class, $token);
+            if ($group) {
+                $variant = Product::where('product_group_id', $group->id)->first();
+                if ($variant) {
+                    return $variant;
+                }
+            }
+        }
+
+        // 5. ProductGroup name STARTS WITH eerste token (vangt vase/vaas-soort verschillen)
+        $firstToken = $tokens[0];
+        $group = $matchOnLocale(\Dashed\DashedEcommerceCore\Models\ProductGroup::class, $firstToken, 'LIKE', '%');
+        if ($group) {
+            $variant = Product::where('product_group_id', $group->id)->first();
+            if ($variant) {
+                return $variant;
+            }
+        }
+
+        return null;
     }
 
     /**
-     * Build product_extras JSON voor OrderProduct met alle relevante Etsy-metadata
-     * zodat admin de oorspronkelijke listing-data kan terugzien.
+     * Bouw product_extras voor OrderProduct als een lijst van `{name, value}`
+     * paren — dat is het formaat dat invoice.blade.php verwacht (loop over
+     * `$option['name']` / `$option['value']`). Bevat de Etsy variations
+     * (Color/Size etc.) plus relevante listing-metadata zodat de admin de
+     * oorspronkelijke Etsy-info kan terugzien op de order/invoice.
      *
      * @param  array<string, mixed>  $transaction
-     * @return array<string, mixed>
+     * @return array<int, array{name: string, value: string}>
      */
     private static function extractProductExtras(array $transaction): array
     {
-        $extras = [
-            'etsy_transaction_id' => $transaction['transaction_id'] ?? null,
-            'etsy_listing_id' => $transaction['listing_id'] ?? null,
-            'etsy_listing_image_id' => $transaction['listing_image_id'] ?? null,
-            'etsy_product_id' => $transaction['product_id'] ?? null,
-            'etsy_is_digital' => (bool) ($transaction['is_digital'] ?? false),
-            'etsy_shipping_method' => $transaction['shipping_method'] ?? null,
-            'etsy_expected_ship_date' => $transaction['expected_ship_date'] ?? null,
-        ];
+        $extras = [];
 
+        // Etsy variations (color, size, etc.) — primair zichtbaar op invoice
         if (! empty($transaction['variations']) && is_array($transaction['variations'])) {
-            $extras['etsy_variations'] = array_map(function ($variation) {
+            foreach ($transaction['variations'] as $variation) {
                 if (! is_array($variation)) {
-                    return $variation;
+                    continue;
                 }
-
-                return [
-                    'property_id' => $variation['property_id'] ?? null,
-                    'property_name' => $variation['formatted_name'] ?? ($variation['property_name'] ?? null),
-                    'value' => $variation['formatted_value'] ?? ($variation['value'] ?? null),
-                ];
-            }, $transaction['variations']);
+                $name = (string) ($variation['formatted_name'] ?? ($variation['property_name'] ?? ''));
+                $value = (string) ($variation['formatted_value'] ?? ($variation['value'] ?? ''));
+                if ($name !== '' && $value !== '') {
+                    $extras[] = ['name' => $name, 'value' => $value];
+                }
+            }
         }
 
-        if (! empty($transaction['product_data']) && is_array($transaction['product_data'])) {
-            $extras['etsy_product_data'] = $transaction['product_data'];
+        // Etsy listing/transaction metadata — handig voor admin maar niet kritiek voor invoice
+        $meta = [
+            'Etsy listing' => $transaction['listing_id'] ?? null,
+            'Etsy transaction' => $transaction['transaction_id'] ?? null,
+            'Verzending' => $transaction['shipping_method'] ?? null,
+            'Verwachte verzenddatum' => $transaction['expected_ship_date'] ?? null,
+        ];
+        foreach ($meta as $name => $value) {
+            if ($value === null || $value === '' || $value === false) {
+                continue;
+            }
+            $extras[] = ['name' => $name, 'value' => (string) $value];
         }
 
-        return array_filter($extras, fn ($v) => $v !== null && $v !== false && $v !== []);
+        if (! empty($transaction['is_digital'])) {
+            $extras[] = ['name' => 'Type', 'value' => 'Digitaal'];
+        }
+
+        return $extras;
     }
 
     private static function storeTokens(string $siteId, array $data): void

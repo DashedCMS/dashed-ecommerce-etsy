@@ -3,7 +3,6 @@
 namespace Dashed\DashedEcommerceEtsy;
 
 use Dashed\DashedEcommerceCore\Classes\OrderOrigins;
-use Dashed\DashedEcommerceEtsy\Commands\LinkEtsyListingToProductGroup;
 use Dashed\DashedEcommerceEtsy\Commands\RefreshEtsyToken;
 use Dashed\DashedEcommerceEtsy\Commands\SyncOrdersFromEtsyCommand;
 use Dashed\DashedEcommerceEtsy\Commands\SyncShipmentsToEtsy;
@@ -41,7 +40,6 @@ class DashedEcommerceEtsyServiceProvider extends PackageServiceProvider
                 SyncOrdersFromEtsyCommand::class,
                 RefreshEtsyToken::class,
                 SyncShipmentsToEtsy::class,
-                LinkEtsyListingToProductGroup::class,
             ]);
 
         cms()->builder('plugins', [new DashedEcommerceEtsyPlugin()]);

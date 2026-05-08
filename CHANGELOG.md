@@ -2,6 +2,18 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.2.0 - 2026-05-08
+
+### Removed
+- Handmatige `etsy_listing_id`-koppeling: het veld op `dashed__product_groups` en de `dashed-etsy:link-listing` artisan command zijn weg. Matching is nu volledig automatisch — geen admin-koppelwerk per listing meer.
+
+### Changed
+- **Slimmere automatische product-matching** met token + startsWith fallback. Volgorde nu: (1) SKU exact, (2) `Product.name` exact, (3) `ProductGroup.name` exact, (4) elk betekenisvol token (≥3 chars, non-numeric) van de Etsy title vs `ProductGroup.name` exact in elke locale, (5) `ProductGroup.name LIKE eerste-token%`. Vangt verschil tussen bv. "Bluma 3D vase" (Etsy) en "Bluma 3D vaas" (Dashed NL) of "Bluma" (Dashed EN). De LIKE-anywhere fuzzy fallback uit v4.1.0 is verwijderd want te veel false positives.
+- **`product_extras` formaat** is nu een lijst van `{name, value}` paren — het formaat dat `invoice.blade.php` verwacht. Voorheen waren het associative keys/values waardoor de invoice-template crashte met `Trying to access array offset on int`. Bevat nu Etsy variations (Color/Size etc.) plus listing-metadata (Etsy listing-ID, transaction-ID, verzendmethode, verwachte verzenddatum).
+
+### Migration
+- Drop migration voor `dashed__product_groups.etsy_listing_id` (datakolom + index).
+
 ## v4.1.0 - 2026-05-08
 
 ### Changed
