@@ -647,11 +647,24 @@ class Etsy
         }
 
         // Etsy listing/transaction metadata — handig voor admin maar niet kritiek voor invoice
+        $expectedShipDate = $transaction['expected_ship_date'] ?? null;
+        if (is_numeric($expectedShipDate) && (int) $expectedShipDate > 0) {
+            try {
+                $expectedShipDate = Carbon::createFromTimestamp((int) $expectedShipDate)
+                    ->timezone('Europe/Amsterdam')
+                    ->format('d-m-Y');
+            } catch (Throwable $e) {
+                $expectedShipDate = null;
+            }
+        } else {
+            $expectedShipDate = null;
+        }
+
         $meta = [
             'Etsy listing' => $transaction['listing_id'] ?? null,
             'Etsy transaction' => $transaction['transaction_id'] ?? null,
             'Verzending' => $transaction['shipping_method'] ?? null,
-            'Verwachte verzenddatum' => $transaction['expected_ship_date'] ?? null,
+            'Verwachte verzenddatum' => $expectedShipDate,
         ];
         foreach ($meta as $name => $value) {
             if ($value === null || $value === '' || $value === false) {

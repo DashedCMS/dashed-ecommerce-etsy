@@ -2,6 +2,14 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.2.1 - 2026-05-08
+
+### Added
+- **Custom order fields** voor Etsy geregistreerd via `ecommerce()->builder('customOrderFields', ...)`, zelfde patroon als Bol. `etsyReceiptId` (Etsy receipt-ID) toont op order detail-pagina, invoice én packing-slip; `etsyShopId` (Etsy shop-ID) alleen op de order-pagina (`hideFromCheckout: true, showOnInvoice: false`). Snake-case mapping zodat de keys direct verwijzen naar de bestaande `etsy_receipt_id` / `etsy_shop_id` kolommen op `dashed__orders`.
+
+### Fixed
+- "Verwachte verzenddatum" in `OrderProduct.product_extras` werd weergegeven als ruwe Unix timestamp (`1778731140`). Nu geformatteerd als `d-m-Y` in Europe/Amsterdam timezone.
+
 ## v4.2.0 - 2026-05-08
 
 ### Removed
