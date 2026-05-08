@@ -3,14 +3,16 @@
 namespace Dashed\DashedEcommerceEtsy\Classes;
 
 use Carbon\Carbon;
+use Dashed\DashedCore\Classes\Locales;
 use Dashed\DashedCore\Classes\Sites;
 use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedCore\Models\User;
 use Dashed\DashedEcommerceCore\Models\Order;
+use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
 use Dashed\DashedEcommerceCore\Models\Product;
-use Dashed\DashedEcommerceEtsy\Models\EtsyOrder;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -51,12 +53,6 @@ class Etsy
         return Customsetting::get('etsy_shop_id', $siteId ?? Sites::getActive()) ?: null;
     }
 
-    /**
-     * Etsy verwacht het x-api-key header in formaat <keystring>:<shared_secret>
-     * voor app-tier API-calls. Voorheen stuurden we alleen de keystring,
-     * waardoor Etsy een 403 "Shared secret is required in x-api-key header"
-     * teruggaf. Deze helper levert de juiste samengestelde header-waarde.
-     */
     public static function apiKeyHeader(?string $siteId = null): ?string
     {
         $clientId = self::clientId($siteId);
@@ -120,7 +116,6 @@ class Etsy
             $data = $response->json();
             self::storeTokens($siteId, $data);
 
-            // Etsy access_token format is "<user_id>.<token>"; user_id is voorkant
             $userId = Str::before((string) ($data['access_token'] ?? ''), '.');
             $shopId = self::fetchShopIdForUser($siteId, $userId);
             if ($shopId) {
@@ -210,6 +205,25 @@ class Etsy
         };
     }
 
+    public static function syncShopId(?string $siteId = null): ?string
+    {
+        $siteId ??= Sites::getActive();
+        $accessToken = self::ensureValidAccessToken($siteId);
+        if (! $accessToken) {
+            return null;
+        }
+        $userId = Str::before($accessToken, '.');
+        if (! $userId) {
+            return null;
+        }
+        $shopId = self::fetchShopIdForUser($siteId, $userId);
+        if ($shopId) {
+            Customsetting::set('etsy_shop_id', $shopId, $siteId);
+        }
+
+        return $shopId;
+    }
+
     /**
      * @return array{imported: int, skipped: int, errors: array<int, string>}
      */
@@ -256,7 +270,7 @@ class Etsy
 
             foreach ($results as $receipt) {
                 try {
-                    $existedBefore = EtsyOrder::where('etsy_receipt_id', (string) ($receipt['receipt_id'] ?? ''))->exists();
+                    $existedBefore = Order::where('etsy_receipt_id', (string) ($receipt['receipt_id'] ?? ''))->exists();
                     self::syncOrder($siteId, $receipt);
                     if ($existedBefore) {
                         $skipped++;
@@ -289,14 +303,14 @@ class Etsy
     /**
      * @param  array<string, mixed>  $receipt
      */
-    public static function syncOrder(string $siteId, array $receipt): EtsyOrder
+    public static function syncOrder(string $siteId, array $receipt): Order
     {
         $receiptId = (string) ($receipt['receipt_id'] ?? '');
         if (! $receiptId) {
             throw new RuntimeException('Receipt zonder receipt_id');
         }
 
-        $existing = EtsyOrder::where('etsy_receipt_id', $receiptId)->first();
+        $existing = Order::where('etsy_receipt_id', $receiptId)->first();
         if ($existing) {
             return $existing;
         }
@@ -314,12 +328,15 @@ class Etsy
         ]);
 
         $shippingCost = self::amount($receipt['total_shipping_cost'] ?? null);
+        $shopId = self::shopId($siteId);
 
         $order = new Order();
         $order->user_id = $user->id;
         $order->order_origin = 'etsy';
         $order->site_id = $siteId;
-        $order->invoice_id = 'ETSY-'.$receiptId;
+        $order->etsy_receipt_id = $receiptId;
+        $order->etsy_shop_id = $shopId;
+        $order->invoice_id = 'PROFORMA';
         $order->email = $email;
         $order->first_name = $firstName;
         $order->last_name = $lastName;
@@ -331,32 +348,26 @@ class Etsy
         $order->country = (string) ($receipt['country_iso'] ?? '');
         $order->total = self::amount($receipt['grandtotal'] ?? null);
         $order->subtotal = self::amount($receipt['subtotal'] ?? null);
-        $order->btw = self::amount($receipt['total_tax_cost'] ?? null);
-        $order->status = ! empty($receipt['was_paid']) ? 'paid' : 'pending';
+        $order->status = 'paid'; // Etsy heeft de betaling al afgehandeld; status altijd paid bij sync
         $order->fulfillment_status = ! empty($receipt['was_shipped']) ? 'shipped' : 'unhandled';
+        $order->locale = Locales::getFirstLocale()['id'] ?? 'nl';
+        $order->invoice_send_to_customer = 0;
         $order->save();
-        if (! empty($receipt['was_paid']) && ! empty($receipt['paid_timestamp'])) {
-            $order->updated_at = Carbon::createFromTimestamp((int) $receipt['paid_timestamp']);
-        }
+
         if (! empty($receipt['created_timestamp'])) {
             $order->created_at = Carbon::createFromTimestamp((int) $receipt['created_timestamp']);
             $order->save();
         }
 
-        foreach (($receipt['transactions'] ?? []) as $transaction) {
-            $sku = (string) ($transaction['sku'] ?? '');
-            $product = $sku ? Product::where('sku', $sku)->first() : null;
+        // Generate invoice_id volgens webshop's eigen counter (PROFORMA -> echte nummer)
+        $order->generateInvoiceId();
 
-            $orderProduct = new OrderProduct();
-            $orderProduct->order_id = $order->id;
-            $orderProduct->product_id = $product?->id;
-            $orderProduct->name = (string) ($transaction['title'] ?? 'Etsy item');
-            $orderProduct->sku = $sku ?: null;
-            $orderProduct->quantity = (int) ($transaction['quantity'] ?? 1);
-            $orderProduct->price = self::amount($transaction['price'] ?? null);
-            $orderProduct->save();
+        // Lijn-items uit transactions met smart product-match + auto-BTW via boot hook
+        foreach (($receipt['transactions'] ?? []) as $transaction) {
+            self::createOrderProduct($order, $transaction);
         }
 
+        // Verzendkosten als losse OrderProduct met sku 'shipping_costs'
         if ($shippingCost > 0) {
             $shippingLine = new OrderProduct();
             $shippingLine->order_id = $order->id;
@@ -364,37 +375,59 @@ class Etsy
             $shippingLine->sku = 'shipping_costs';
             $shippingLine->quantity = 1;
             $shippingLine->price = $shippingCost;
+            $shippingLine->vat_rate = 21;
             $shippingLine->save();
         }
 
-        if (! empty($receipt['was_paid'])) {
-            $payment = new OrderPayment();
-            $payment->order_id = $order->id;
-            $payment->psp = 'etsy';
-            $payment->status = 'paid';
-            $payment->amount = $order->total;
-            $payment->save();
+        // Som BTW per vat_rate voor order.btw + order.vat_percentages
+        $order->refresh();
+        $btwTotal = 0.0;
+        $vatPercentages = [];
+        foreach ($order->orderProducts as $op) {
+            $btwTotal += (float) $op->btw;
+            $rate = (string) ((int) ($op->vat_rate ?? 21));
+            $vatPercentages[$rate] = ($vatPercentages[$rate] ?? 0.0) + (float) $op->btw;
+        }
+        $order->btw = round($btwTotal, 2);
+        $order->vat_percentages = array_map(fn ($v) => round((float) $v, 2), $vatPercentages);
+        $order->save();
+
+        // OrderPayment altijd paid voor Etsy bestellingen
+        $payment = new OrderPayment();
+        $payment->order_id = $order->id;
+        $payment->psp = 'etsy';
+        $payment->payment_method = 'Etsy';
+        $payment->status = 'paid';
+        $payment->amount = $order->total;
+        $payment->save();
+
+        OrderLog::createLog($order->id, note: 'Order aangemaakt via Etsy met receipt ID '.$receiptId);
+
+        // Auto MyParcel-koppeling als die package geïnstalleerd én geconnect is
+        if (class_exists(\Dashed\DashedEcommerceMyParcel\Classes\MyParcel::class)) {
+            try {
+                \Dashed\DashedEcommerceMyParcel\Classes\MyParcel::connectOrderWithCarrier($order);
+            } catch (Throwable $e) {
+                Log::warning('Etsy → MyParcel auto-connect failed', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
-        return EtsyOrder::create([
-            'order_id' => $order->id,
-            'etsy_receipt_id' => $receiptId,
-            'etsy_shop_id' => self::shopId($siteId) ?? '',
-            'site_id' => $siteId,
-        ]);
+        return $order->fresh() ?? $order;
     }
 
-    public static function pushTrackAndTrace(EtsyOrder $etsyOrder): bool
+    public static function pushTrackAndTrace(Order $order): bool
     {
-        $order = $etsyOrder->order;
-        if (! $order || $order->trackAndTraces->isEmpty()) {
+        if (! $order->etsy_receipt_id || $order->trackAndTraces->isEmpty()) {
             return false;
         }
 
         $tnt = $order->trackAndTraces->last();
-        $shopId = $etsyOrder->etsy_shop_id ?: self::shopId($etsyOrder->site_id);
+        $shopId = $order->etsy_shop_id ?: self::shopId($order->site_id);
         if (! $shopId) {
-            $etsyOrder->update(['track_and_trace_error' => 'Geen shop_id beschikbaar']);
+            $order->update(['etsy_track_and_trace_error' => 'Geen shop_id beschikbaar']);
 
             return false;
         }
@@ -402,8 +435,8 @@ class Etsy
         $carrier = self::mapCarrier((string) ($tnt->delivery_company ?? ''));
 
         try {
-            $response = self::api($etsyOrder->site_id, 'post',
-                "/application/shops/{$shopId}/receipts/{$etsyOrder->etsy_receipt_id}/tracking",
+            $response = self::api($order->site_id, 'post',
+                "/application/shops/{$shopId}/receipts/{$order->etsy_receipt_id}/tracking",
                 [
                     'body' => [
                         'tracking_code' => $tnt->code,
@@ -414,28 +447,203 @@ class Etsy
             );
 
             if (! $response->successful()) {
-                $etsyOrder->update([
-                    'track_and_trace_error' => 'HTTP '.$response->status().' '.substr($response->body(), 0, 300),
+                $order->update([
+                    'etsy_track_and_trace_error' => 'HTTP '.$response->status().' '.substr($response->body(), 0, 300),
                 ]);
 
                 return false;
             }
 
-            $etsyOrder->update([
-                'track_and_trace_pushed_at' => now(),
-                'track_and_trace_error' => null,
+            $order->update([
+                'etsy_track_and_trace_pushed_at' => now(),
+                'etsy_track_and_trace_error' => null,
             ]);
 
             return true;
         } catch (Throwable $e) {
-            $etsyOrder->update(['track_and_trace_error' => $e->getMessage()]);
+            $order->update(['etsy_track_and_trace_error' => $e->getMessage()]);
             Log::warning('Etsy pushTrackAndTrace failed', [
-                'etsy_order_id' => $etsyOrder->id,
+                'order_id' => $order->id,
                 'error' => $e->getMessage(),
             ]);
 
             return false;
         }
+    }
+
+    /**
+     * Match Etsy transaction op een Dashed Product:
+     *   1. SKU exact match (Etsy listing-SKU == Dashed product SKU)
+     *   2. Naam exact-match (case-insensitive) op de translatable name-JSON
+     *   3. Geen match → product_id null, naam/SKU/prijs uit Etsy
+     *
+     * @param  array<string, mixed>  $transaction
+     */
+    private static function createOrderProduct(Order $order, array $transaction): void
+    {
+        $sku = trim((string) ($transaction['sku'] ?? ''));
+        $title = trim((string) ($transaction['title'] ?? ''));
+        $listingId = isset($transaction['listing_id']) ? (string) $transaction['listing_id'] : '';
+
+        $product = self::matchProduct($sku, $title, $listingId);
+
+        $orderProduct = new OrderProduct();
+        $orderProduct->order_id = $order->id;
+        $orderProduct->product_id = $product?->id;
+        $orderProduct->name = $product?->name ?: ($title ?: 'Etsy item');
+        $orderProduct->sku = $product?->sku ?: ($sku ?: null);
+        $orderProduct->quantity = (int) ($transaction['quantity'] ?? 1);
+
+        // Etsy levert single-unit price; vermenigvuldig met quantity zoals Bol dat ook doet
+        $unitPrice = self::amount($transaction['price'] ?? null);
+        $orderProduct->price = round($unitPrice * (int) ($transaction['quantity'] ?? 1), 2);
+
+        // vat_rate via product, anders 21% default. OrderProduct boot-hook berekent btw zelf
+        // op creating wanneer die nog niet is gezet.
+        if ($product && $product->vat_rate !== null) {
+            $orderProduct->vat_rate = (int) $product->vat_rate;
+        } else {
+            $orderProduct->vat_rate = 21;
+        }
+        $orderProduct->discount = 0;
+
+        // Extra Etsy-info zodat admin kan zien om welke listing/variation het ging
+        $orderProduct->product_extras = self::extractProductExtras($transaction);
+
+        // Etsy levert images via apart endpoint per listing; voor nu alleen
+        // listing_image_id opslaan in product_extras (image-url kan later async opgehaald)
+        if (! $product && ! empty($transaction['listing_image_id'])) {
+            $orderProduct->custom_image = null; // bewust leeg; laden zou extra API call vergen
+        }
+
+        $orderProduct->save();
+    }
+
+    /**
+     * Probeer een Dashed Product te vinden voor deze Etsy transaction. Volgorde:
+     *   1. SKU exact (Etsy listing-SKU == Dashed product SKU) — sterkste signaal
+     *   2. ProductGroup.etsy_listing_id == transaction.listing_id (handmatige
+     *      koppeling door admin in ProductGroup-edit; meest betrouwbaar
+     *      voor multi-variant Etsy listings) → eerste variant in die group
+     *   3. Product.name exact (case-insensitive) over alle locales
+     *   4. ProductGroup.name exact match → eerste product in die group
+     *   5. Product.name LIKE %title% — laatste-redmiddel fuzzy match
+     */
+    private static function matchProduct(string $sku, string $title, string $listingId = ''): ?Product
+    {
+        if ($sku !== '') {
+            $product = Product::where('sku', $sku)->first();
+            if ($product) {
+                return $product;
+            }
+        }
+
+        // 2. ProductGroup.etsy_listing_id == transaction.listing_id (handmatige koppeling)
+        if ($listingId !== '' && class_exists(\Dashed\DashedEcommerceCore\Models\ProductGroup::class)) {
+            $group = \Dashed\DashedEcommerceCore\Models\ProductGroup::where('etsy_listing_id', $listingId)->first();
+            if ($group) {
+                $variant = Product::where('product_group_id', $group->id)->first();
+                if ($variant) {
+                    return $variant;
+                }
+            }
+        }
+
+        if ($title === '') {
+            return null;
+        }
+
+        $titleLower = strtolower($title);
+        $locales = Locales::getLocales();
+
+        // 3. Product.name exact match
+        $product = Product::query()->where(function (Builder $q) use ($titleLower, $locales) {
+            foreach ($locales as $locale) {
+                $localeId = $locale['id'] ?? null;
+                if (! $localeId) {
+                    continue;
+                }
+                $q->orWhereRaw('LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, ?))) = ?', ['$."'.$localeId.'"', $titleLower]);
+            }
+        })->first();
+        if ($product) {
+            return $product;
+        }
+
+        // 4. ProductGroup.name exact match → eerste product in die group
+        if (class_exists(\Dashed\DashedEcommerceCore\Models\ProductGroup::class)) {
+            $group = \Dashed\DashedEcommerceCore\Models\ProductGroup::query()
+                ->where(function (Builder $q) use ($titleLower, $locales) {
+                    foreach ($locales as $locale) {
+                        $localeId = $locale['id'] ?? null;
+                        if (! $localeId) {
+                            continue;
+                        }
+                        $q->orWhereRaw('LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, ?))) = ?', ['$."'.$localeId.'"', $titleLower]);
+                    }
+                })
+                ->first();
+            if ($group) {
+                $variant = Product::where('product_group_id', $group->id)->first();
+                if ($variant) {
+                    return $variant;
+                }
+            }
+        }
+
+        // 5. LIKE %title% over locales — laatste fuzzy fallback
+        $like = '%'.strtolower($title).'%';
+        $product = Product::query()->where(function (Builder $q) use ($like, $locales) {
+            foreach ($locales as $locale) {
+                $localeId = $locale['id'] ?? null;
+                if (! $localeId) {
+                    continue;
+                }
+                $q->orWhereRaw('LOWER(JSON_UNQUOTE(JSON_EXTRACT(name, ?))) LIKE ?', ['$."'.$localeId.'"', $like]);
+            }
+        })->first();
+
+        return $product;
+    }
+
+    /**
+     * Build product_extras JSON voor OrderProduct met alle relevante Etsy-metadata
+     * zodat admin de oorspronkelijke listing-data kan terugzien.
+     *
+     * @param  array<string, mixed>  $transaction
+     * @return array<string, mixed>
+     */
+    private static function extractProductExtras(array $transaction): array
+    {
+        $extras = [
+            'etsy_transaction_id' => $transaction['transaction_id'] ?? null,
+            'etsy_listing_id' => $transaction['listing_id'] ?? null,
+            'etsy_listing_image_id' => $transaction['listing_image_id'] ?? null,
+            'etsy_product_id' => $transaction['product_id'] ?? null,
+            'etsy_is_digital' => (bool) ($transaction['is_digital'] ?? false),
+            'etsy_shipping_method' => $transaction['shipping_method'] ?? null,
+            'etsy_expected_ship_date' => $transaction['expected_ship_date'] ?? null,
+        ];
+
+        if (! empty($transaction['variations']) && is_array($transaction['variations'])) {
+            $extras['etsy_variations'] = array_map(function ($variation) {
+                if (! is_array($variation)) {
+                    return $variation;
+                }
+
+                return [
+                    'property_id' => $variation['property_id'] ?? null,
+                    'property_name' => $variation['formatted_name'] ?? ($variation['property_name'] ?? null),
+                    'value' => $variation['formatted_value'] ?? ($variation['value'] ?? null),
+                ];
+            }, $transaction['variations']);
+        }
+
+        if (! empty($transaction['product_data']) && is_array($transaction['product_data'])) {
+            $extras['etsy_product_data'] = $transaction['product_data'];
+        }
+
+        return array_filter($extras, fn ($v) => $v !== null && $v !== false && $v !== []);
     }
 
     private static function storeTokens(string $siteId, array $data): void
@@ -444,30 +652,6 @@ class Etsy
         Customsetting::set('etsy_refresh_token', $data['refresh_token'] ?? '', $siteId);
         $ttl = (int) ($data['expires_in'] ?? 3600);
         Customsetting::set('etsy_token_expires_at', now()->addSeconds($ttl)->toIso8601String(), $siteId);
-    }
-
-    /**
-     * Haal shop_id opnieuw op voor een gekoppelde site. Bruikbaar wanneer
-     * de eerste fetch tijdens OAuth-koppeling faalde of een leeg resultaat
-     * gaf. user_id wordt afgeleid uit het access_token (format: <user_id>.<token>).
-     */
-    public static function syncShopId(?string $siteId = null): ?string
-    {
-        $siteId ??= Sites::getActive();
-        $accessToken = self::ensureValidAccessToken($siteId);
-        if (! $accessToken) {
-            return null;
-        }
-        $userId = Str::before($accessToken, '.');
-        if (! $userId) {
-            return null;
-        }
-        $shopId = self::fetchShopIdForUser($siteId, $userId);
-        if ($shopId) {
-            Customsetting::set('etsy_shop_id', $shopId, $siteId);
-        }
-
-        return $shopId;
     }
 
     private static function fetchShopIdForUser(string $siteId, string $userId): ?string
@@ -497,11 +681,6 @@ class Etsy
 
         $json = $response->json();
 
-        // Etsy API kan verschillende shapes terugleveren afhankelijk van
-        // account-type en API-versie:
-        //   - direct shop object: { "shop_id": 1, "shop_name": "..." }
-        //   - paginated wrapper:  { "count": 1, "results": [{ "shop_id": 1 }] }
-        //   - lege: { "count": 0, "results": [] } voor users zonder shop
         $candidates = [];
         if (is_array($json)) {
             $candidates[] = $json['shop_id'] ?? null;
@@ -529,11 +708,6 @@ class Etsy
     }
 
     /**
-     * Etsy receipt heeft één 'name'-veld; Dashed Order heeft first_name +
-     * last_name gescheiden. Splitsen op eerste spatie zodat "Jan de Vries"
-     * = first_name "Jan", last_name "de Vries". Lege of single-word namen
-     * komen volledig in first_name.
-     *
      * @return array{0: string, 1: string}
      */
     private static function splitName(string $fullName): array

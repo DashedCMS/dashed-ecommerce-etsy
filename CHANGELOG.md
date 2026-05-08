@@ -2,6 +2,27 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.1.0 - 2026-05-08
+
+### Changed
+- **Order-mapping volgt nu het Bol-patroon**: `etsy_receipt_id` + `etsy_shop_id` + `etsy_track_and_trace_pushed_at` + `etsy_track_and_trace_error` zijn directe kolommen op `dashed__orders` (i.p.v. de `dashed__etsy_orders` pivot, die in deze migration wordt gedropt na data-migratie). `invoice_id` start als `'PROFORMA'` en wordt direct daarna via `Order::generateInvoiceId()` op het webshop's eigen invoice-counter nummer gezet, zoals Bol dat ook doet.
+- **Status altijd `paid` + automatische `OrderPayment`**: Etsy heeft de betaling al afgehandeld, dus elke synced receipt wordt direct als betaald gemarkeerd. `OrderPayment` met `psp='etsy'` en `status='paid'` wordt automatisch aangemaakt.
+- **Auto-MyParcel-koppeling**: zodra `dashed-ecommerce-myparcel` geïnstalleerd + geconnect is roept `Etsy::syncOrder()` `MyParcel::connectOrderWithCarrier($order)` aan. Het MyParcel-label staat dan direct klaar in de wachtrij van de cron, zonder admin-interactie.
+- **BTW automatisch berekend** via OrderProduct's bestaande `creating` boot-hook: per regel `vat_rate` (default 21%, overgenomen van het gematchte Product) → `btw = price - price/(1+vat_rate/100)`. Order-level som van btw + `vat_percentages` wordt na alle line-items berekend.
+
+### Added
+- **Slimmere product-matching**: 5-stappen-cascade — (1) SKU exact, (2) `ProductGroup.etsy_listing_id == transaction.listing_id` handmatige koppeling, (3) `Product.name` exact, (4) `ProductGroup.name` exact + eerste variant, (5) `Product.name LIKE %title%` fuzzy fallback.
+- **Migration**: `dashed__product_groups.etsy_listing_id` (string, nullable, indexed) — admin koppelt expliciet welke Dashed productgroep bij welke Etsy listing hoort. Komt overeen met Bol's pattern voor extra integration-fields op core models.
+- **Artisan command** `dashed-etsy:link-listing {group_id} {listing_id}` — link een ProductGroup aan een Etsy listing_id zonder UI-werk.
+- **OrderProduct.product_extras** wordt nu gevuld met Etsy-metadata: `etsy_transaction_id`, `etsy_listing_id`, `etsy_listing_image_id`, `etsy_product_id`, `etsy_is_digital`, `etsy_shipping_method`, `etsy_expected_ship_date`, `etsy_variations` (geformatteerde property/value-paren) en `etsy_product_data`. Admin kan die in de Order edit-pagina inspecteren.
+- **`skipped`-counter** in CLI-output van `dashed-etsy:sync-orders` zodat re-runs duidelijk laten zien welke receipts al bekend waren.
+
+### Migration impact
+- Nieuwe kolommen op `dashed__orders` (4 stuks).
+- `dashed__product_groups.etsy_listing_id` toegevoegd.
+- Pivot `dashed__etsy_orders` wordt gedropt na automatische data-migratie naar de nieuwe kolommen.
+- Order- en ProductGroup-data zonder Etsy-koppeling blijft onaangeroerd.
+
 ## v4.0.8 - 2026-05-08
 
 ### Fixed
