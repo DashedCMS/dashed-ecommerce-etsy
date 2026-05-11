@@ -2,15 +2,15 @@
 
 namespace Dashed\DashedEcommerceEtsy;
 
-use Dashed\DashedEcommerceCore\Classes\OrderOrigins;
-use Dashed\DashedEcommerceEtsy\Commands\RefreshEtsyToken;
-use Dashed\DashedEcommerceEtsy\Commands\SyncOrdersFromEtsyCommand;
-use Dashed\DashedEcommerceEtsy\Commands\SyncShipmentsToEtsy;
-use Dashed\DashedEcommerceEtsy\Filament\Pages\Settings\EtsySettingsPage;
-use Dashed\DashedTranslations\Models\Translation;
-use Illuminate\Console\Scheduling\Schedule;
 use Spatie\LaravelPackageTools\Package;
+use Illuminate\Console\Scheduling\Schedule;
+use Dashed\DashedTranslations\Models\Translation;
+use Dashed\DashedEcommerceCore\Classes\OrderOrigins;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
+use Dashed\DashedEcommerceEtsy\Commands\RefreshEtsyToken;
+use Dashed\DashedEcommerceEtsy\Commands\SyncShipmentsToEtsy;
+use Dashed\DashedEcommerceEtsy\Commands\SyncOrdersFromEtsyCommand;
+use Dashed\DashedEcommerceEtsy\Filament\Pages\Settings\EtsySettingsPage;
 
 class DashedEcommerceEtsyServiceProvider extends PackageServiceProvider
 {

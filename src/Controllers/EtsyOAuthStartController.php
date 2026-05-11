@@ -2,10 +2,10 @@
 
 namespace Dashed\DashedEcommerceEtsy\Controllers;
 
-use App\Http\Controllers\Controller;
-use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
+use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 
 class EtsyOAuthStartController extends Controller
 {

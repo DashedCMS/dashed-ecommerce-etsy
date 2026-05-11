@@ -2,12 +2,12 @@
 
 namespace Dashed\DashedEcommerceEtsy\Controllers;
 
-use App\Http\Controllers\Controller;
-use Dashed\DashedCore\Models\Customsetting;
-use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Dashed\DashedCore\Models\Customsetting;
+use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 
 class EtsyOAuthCallbackController extends Controller
 {

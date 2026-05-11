@@ -1,8 +1,8 @@
 <?php
 
-use Dashed\DashedEcommerceEtsy\Controllers\EtsyOAuthCallbackController;
-use Dashed\DashedEcommerceEtsy\Controllers\EtsyOAuthStartController;
 use Illuminate\Support\Facades\Route;
+use Dashed\DashedEcommerceEtsy\Controllers\EtsyOAuthStartController;
+use Dashed\DashedEcommerceEtsy\Controllers\EtsyOAuthCallbackController;
 
 Route::middleware(['web', 'auth'])
     ->get('/dashed/etsy/oauth/start/{siteId}', EtsyOAuthStartController::class)

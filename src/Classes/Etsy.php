@@ -2,24 +2,24 @@
 
 namespace Dashed\DashedEcommerceEtsy\Classes;
 
+use Throwable;
 use Carbon\Carbon;
-use Dashed\DashedCore\Classes\Locales;
-use Dashed\DashedCore\Classes\Sites;
-use Dashed\DashedCore\Models\Customsetting;
+use RuntimeException;
+use Illuminate\Support\Str;
 use Dashed\DashedCore\Models\User;
+use Illuminate\Support\Facades\Log;
+use Dashed\DashedCore\Classes\Sites;
+use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Http;
+use Dashed\DashedCore\Classes\Locales;
+use Illuminate\Database\Eloquent\Builder;
+use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
+use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
-use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\ShippingZone;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use RuntimeException;
-use Throwable;
 
 class Etsy
 {
@@ -260,6 +260,7 @@ class Etsy
 
             if (! $response->successful()) {
                 $errors[] = 'Receipts fetch faalde: HTTP '.$response->status().' '.substr($response->body(), 0, 200);
+
                 break;
             }
 
@@ -450,7 +451,9 @@ class Etsy
         $carrier = self::mapCarrier((string) ($tnt->delivery_company ?? ''));
 
         try {
-            $response = self::api($order->site_id, 'post',
+            $response = self::api(
+                $order->site_id,
+                'post',
                 "/application/shops/{$shopId}/receipts/{$order->etsy_receipt_id}/tracking",
                 [
                     'body' => [

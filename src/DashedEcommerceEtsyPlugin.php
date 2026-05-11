@@ -2,9 +2,9 @@
 
 namespace Dashed\DashedEcommerceEtsy;
 
-use Dashed\DashedEcommerceEtsy\Filament\Pages\Settings\EtsySettingsPage;
-use Filament\Contracts\Plugin;
 use Filament\Panel;
+use Filament\Contracts\Plugin;
+use Dashed\DashedEcommerceEtsy\Filament\Pages\Settings\EtsySettingsPage;
 
 class DashedEcommerceEtsyPlugin implements Plugin
 {

@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.2.4 - 2026-05-11
+
+### Changed
+- Pint-pass: import-volgorde + `new class () extends Migration`-syntax conform PHP-CS-Fixer profile. Geen gedragsverandering.
+
 ## v4.2.3 - 2026-05-08
 
 ### Fixed

@@ -2,9 +2,9 @@
 
 namespace Dashed\DashedEcommerceEtsy\Commands;
 
+use Illuminate\Console\Command;
 use Dashed\DashedCore\Classes\Sites;
 use Dashed\DashedEcommerceEtsy\Classes\Etsy;
-use Illuminate\Console\Command;
 
 class SyncOrdersFromEtsyCommand extends Command
 {
