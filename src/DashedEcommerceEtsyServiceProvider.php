@@ -29,6 +29,16 @@ class DashedEcommerceEtsyServiceProvider extends PackageServiceProvider
 
         cms()->registerSettingsPage(EtsySettingsPage::class, 'Etsy', 'shopping-bag', 'Koppel Etsy');
 
+        cms()->registerIntegration([
+            'slug' => 'etsy',
+            'label' => 'Etsy',
+            'icon' => 'heroicon-o-shopping-bag',
+            'category' => 'marketplace',
+            'settings_page' => EtsySettingsPage::class,
+            'health_check' => fn (?string $siteId = null) => \Dashed\DashedCore\Integrations\IntegrationHealth::fromSettings(['etsy_client_id', 'etsy_client_secret'], $siteId, 'OAuth client-credentials ontbreken'),
+            'package' => 'dashed-ecommerce-etsy',
+        ]);
+
         // Registreer Etsy-velden als custom order fields zodat ze op de
         // order-detail-pagina én op de invoice/packing-slip getoond worden.
         // Net als Bol: keys mappen via snake_case naar de Order-kolommen
