@@ -361,10 +361,14 @@ class Etsy
         $order->total = self::amount($receipt['grandtotal'] ?? null);
         $order->subtotal = self::amount($receipt['subtotal'] ?? null);
         $order->vat_reverse_charge = $vatReverseCharge;
-        $order->status = 'paid'; // Etsy heeft de betaling al afgehandeld; status altijd paid bij sync
+        // Status blijft 'pending' tot changeStatus('paid') aan het einde van syncOrder.
+        // Dat is de Bol.com-stijl: markAsPaid() draait de volledige pipeline
+        // (invoice, SendInvoiceJob → admin-mail + Telegram, stock-aftrek, OrderMarkedAsPaidEvent).
         $order->fulfillment_status = ! empty($receipt['was_shipped']) ? 'shipped' : 'unhandled';
         $order->locale = Locales::getFirstLocale()['id'] ?? 'nl';
-        $order->invoice_send_to_customer = 0;
+        // Etsy levert zelf de orderbevestiging aan de klant; voorkom dat SendInvoiceJob
+        // alsnog een klant-mail stuurt door invoice_send_to_customer alvast op 1 te zetten.
+        $order->invoice_send_to_customer = 1;
         $order->save();
 
         if (! empty($receipt['created_timestamp'])) {
@@ -418,6 +422,10 @@ class Etsy
         $payment->save();
 
         OrderLog::createLog($order->id, note: 'Order aangemaakt via Etsy met receipt ID '.$receiptId);
+
+        // Volledige markAsPaid-pipeline: invoice, SendInvoiceJob (admin mail + Telegram via
+        // OrderOrigins::channelsFor('etsy')), stock-aftrek en OrderMarkedAsPaidEvent.
+        $order->changeStatus('paid');
 
         // Auto MyParcel-koppeling als die package geïnstalleerd én geconnect is
         if (class_exists(\Dashed\DashedEcommerceMyParcel\Classes\MyParcel::class)) {
