@@ -76,6 +76,11 @@ return new class () extends Migration {
     private static function indexExists(string $table, string $index): bool
     {
         $connection = Schema::getConnection();
+
+        if ($connection->getDriverName() !== 'mysql') {
+            return false;
+        }
+
         $database = $connection->getDatabaseName();
         $rows = $connection->select(
             'select count(*) as c from information_schema.statistics where table_schema = ? and table_name = ? and index_name = ?',
