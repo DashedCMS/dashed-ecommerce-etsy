@@ -2,24 +2,25 @@
 
 namespace Dashed\DashedEcommerceEtsy\Classes;
 
-use Throwable;
 use Carbon\Carbon;
-use RuntimeException;
-use Illuminate\Support\Str;
-use Dashed\DashedCore\Models\User;
-use Illuminate\Support\Facades\Log;
-use Dashed\DashedCore\Classes\Sites;
-use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
 use Dashed\DashedCore\Classes\Locales;
-use Illuminate\Database\Eloquent\Builder;
+use Dashed\DashedCore\Classes\Sites;
 use Dashed\DashedCore\Models\Customsetting;
+use Dashed\DashedCore\Models\User;
 use Dashed\DashedEcommerceCore\Models\Order;
-use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
-use Dashed\DashedEcommerceCore\Models\ShippingZone;
+use Dashed\DashedEcommerceCore\Models\Product;
+use Dashed\DashedEcommerceCore\Models\ProductGroup;
+use Dashed\DashedEcommerceMyParcel\Classes\MyParcel;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use RuntimeException;
+use Throwable;
 
 class Etsy
 {
@@ -332,17 +333,13 @@ class Etsy
         $shippingCost = self::amount($receipt['total_shipping_cost'] ?? null);
         $shopId = self::shopId($siteId);
 
-        // BTW-verlegd: kijk of er een ShippingZone met vat_reverse_charge actief
-        // is voor het land van de buyer. Etsy levert ISO-codes ("FR", "BE") in
-        // country_iso; ShoppingCart::getShippingZoneByCountry matcht zowel op
-        // naam, ISO-2/3 als demonym/altSpelling.
-        $country = (string) ($receipt['country_iso'] ?? '');
-        $shippingZone = $country !== ''
-            ? \Dashed\DashedEcommerceCore\Classes\ShoppingCart::getShippingZoneByCountry($country)
-            : null;
-        $vatReverseCharge = $shippingZone && (bool) ($shippingZone->vat_reverse_charge ?? false);
+        // Reverse charge (BTW-verlegd) geldt uitsluitend B2B met een geldig,
+        // VIES-gevalideerd BTW-nummer. Etsy levert uitsluitend particuliere kopers
+        // zonder BTW-nummer aan, dus dit mag hier nooit gelden — anders worden
+        // EU-consumenten ten onrechte op 0% BTW geboekt.
+        $vatReverseCharge = false;
 
-        $order = new Order();
+        $order = new Order;
         $order->user_id = $user->id;
         $order->order_origin = 'etsy';
         $order->site_id = $siteId;
@@ -386,7 +383,7 @@ class Etsy
 
         // Verzendkosten als losse OrderProduct met sku 'shipping_costs'
         if ($shippingCost > 0) {
-            $shippingLine = new OrderProduct();
+            $shippingLine = new OrderProduct;
             $shippingLine->order_id = $order->id;
             $shippingLine->name = 'Verzendkosten (Etsy)';
             $shippingLine->sku = 'shipping_costs';
@@ -413,7 +410,7 @@ class Etsy
         $order->save();
 
         // OrderPayment altijd paid voor Etsy bestellingen
-        $payment = new OrderPayment();
+        $payment = new OrderPayment;
         $payment->order_id = $order->id;
         $payment->psp = 'etsy';
         $payment->payment_method = 'Etsy';
@@ -428,9 +425,9 @@ class Etsy
         $order->changeStatus('paid');
 
         // Auto MyParcel-koppeling als die package geïnstalleerd én geconnect is
-        if (class_exists(\Dashed\DashedEcommerceMyParcel\Classes\MyParcel::class)) {
+        if (class_exists(MyParcel::class)) {
             try {
-                \Dashed\DashedEcommerceMyParcel\Classes\MyParcel::connectOrderWithCarrier($order);
+                MyParcel::connectOrderWithCarrier($order);
             } catch (Throwable $e) {
                 Log::warning('Etsy → MyParcel auto-connect failed', [
                     'order_id' => $order->id,
@@ -512,7 +509,7 @@ class Etsy
 
         $product = self::matchProduct($sku, $title);
 
-        $orderProduct = new OrderProduct();
+        $orderProduct = new OrderProduct;
         $orderProduct->order_id = $order->id;
         $orderProduct->product_id = $product?->id;
         $orderProduct->name = $product?->name ?: ($title ?: 'Etsy item');
@@ -603,11 +600,11 @@ class Etsy
             return $product;
         }
 
-        $hasGroups = class_exists(\Dashed\DashedEcommerceCore\Models\ProductGroup::class);
+        $hasGroups = class_exists(ProductGroup::class);
 
         // 3. ProductGroup.name exact match → eerste variant
         if ($hasGroups) {
-            $group = $matchOnLocale(\Dashed\DashedEcommerceCore\Models\ProductGroup::class, $titleLower);
+            $group = $matchOnLocale(ProductGroup::class, $titleLower);
             if ($group) {
                 $variant = Product::where('product_group_id', $group->id)->first();
                 if ($variant) {
@@ -628,7 +625,7 @@ class Etsy
 
         // 4. Token == ProductGroup name (in any locale)
         foreach ($tokens as $token) {
-            $group = $matchOnLocale(\Dashed\DashedEcommerceCore\Models\ProductGroup::class, $token);
+            $group = $matchOnLocale(ProductGroup::class, $token);
             if ($group) {
                 $variant = Product::where('product_group_id', $group->id)->first();
                 if ($variant) {
@@ -639,7 +636,7 @@ class Etsy
 
         // 5. ProductGroup name STARTS WITH eerste token (vangt vase/vaas-soort verschillen)
         $firstToken = $tokens[0];
-        $group = $matchOnLocale(\Dashed\DashedEcommerceCore\Models\ProductGroup::class, $firstToken, 'LIKE', '%');
+        $group = $matchOnLocale(ProductGroup::class, $firstToken, 'LIKE', '%');
         if ($group) {
             $variant = Product::where('product_group_id', $group->id)->first();
             if ($variant) {
