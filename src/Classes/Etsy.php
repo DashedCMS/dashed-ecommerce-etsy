@@ -2,25 +2,25 @@
 
 namespace Dashed\DashedEcommerceEtsy\Classes;
 
+use Throwable;
 use Carbon\Carbon;
-use Dashed\DashedCore\Classes\Locales;
-use Dashed\DashedCore\Classes\Sites;
-use Dashed\DashedCore\Models\Customsetting;
+use RuntimeException;
+use Illuminate\Support\Str;
 use Dashed\DashedCore\Models\User;
+use Illuminate\Support\Facades\Log;
+use Dashed\DashedCore\Classes\Sites;
+use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Http;
+use Dashed\DashedCore\Classes\Locales;
+use Illuminate\Database\Eloquent\Builder;
+use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
+use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
-use Dashed\DashedEcommerceCore\Models\Product;
 use Dashed\DashedEcommerceCore\Models\ProductGroup;
 use Dashed\DashedEcommerceMyParcel\Classes\MyParcel;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use RuntimeException;
-use Throwable;
 
 class Etsy
 {
@@ -339,7 +339,7 @@ class Etsy
         // EU-consumenten ten onrechte op 0% BTW geboekt.
         $vatReverseCharge = false;
 
-        $order = new Order;
+        $order = new Order();
         $order->user_id = $user->id;
         $order->order_origin = 'etsy';
         $order->site_id = $siteId;
@@ -355,7 +355,11 @@ class Etsy
         $order->zip_code = (string) ($receipt['zip'] ?? '');
         $order->city = (string) ($receipt['city'] ?? '');
         $order->country = (string) ($receipt['country_iso'] ?? '');
-        $order->total = self::amount($receipt['grandtotal'] ?? null);
+        // NB: Etsy's 'grandtotal' bevat de door Etsy zelf geïnde marketplace-BTW
+        // (bv. UK/US sales tax). Die is niet onze omzet en zit niet in onze
+        // orderregels. order->total wordt daarom verderop uit de eigen regels
+        // (producten + verzending) opgebouwd; hier enkel een voorlopige waarde.
+        $order->total = round(self::amount($receipt['subtotal'] ?? null) + $shippingCost, 2);
         $order->subtotal = self::amount($receipt['subtotal'] ?? null);
         $order->vat_reverse_charge = $vatReverseCharge;
         // Status blijft 'pending' tot changeStatus('paid') aan het einde van syncOrder.
@@ -383,7 +387,7 @@ class Etsy
 
         // Verzendkosten als losse OrderProduct met sku 'shipping_costs'
         if ($shippingCost > 0) {
-            $shippingLine = new OrderProduct;
+            $shippingLine = new OrderProduct();
             $shippingLine->order_id = $order->id;
             $shippingLine->name = 'Verzendkosten (Etsy)';
             $shippingLine->sku = 'shipping_costs';
@@ -399,18 +403,24 @@ class Etsy
         // Som BTW per vat_rate voor order.btw + order.vat_percentages
         $order->refresh();
         $btwTotal = 0.0;
+        $lineTotal = 0.0;
         $vatPercentages = [];
         foreach ($order->orderProducts as $op) {
             $btwTotal += (float) $op->btw;
+            $lineTotal += (float) $op->price;
             $rate = (string) ((int) ($op->vat_rate ?? 21));
             $vatPercentages[$rate] = ($vatPercentages[$rate] ?? 0.0) + (float) $op->btw;
         }
         $order->btw = round($btwTotal, 2);
+        // Totaal is de som van de eigen orderregels (producten + verzending),
+        // niet Etsy's grandtotal, zodat door Etsy geïnde marketplace-BTW niet
+        // als omzet meetelt en total/btw/regels onderling kloppen.
+        $order->total = round($lineTotal, 2);
         $order->vat_percentages = array_map(fn ($v) => round((float) $v, 2), $vatPercentages);
         $order->save();
 
         // OrderPayment altijd paid voor Etsy bestellingen
-        $payment = new OrderPayment;
+        $payment = new OrderPayment();
         $payment->order_id = $order->id;
         $payment->psp = 'etsy';
         $payment->payment_method = 'Etsy';
@@ -509,7 +519,7 @@ class Etsy
 
         $product = self::matchProduct($sku, $title);
 
-        $orderProduct = new OrderProduct;
+        $orderProduct = new OrderProduct();
         $orderProduct->order_id = $order->id;
         $orderProduct->product_id = $product?->id;
         $orderProduct->name = $product?->name ?: ($title ?: 'Etsy item');
