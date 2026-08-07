@@ -65,24 +65,24 @@ class EtsySettingsPage extends Page
                         ->state($statusText.($error ? "\n".$error : ''))
                         ->columnSpan(['default' => 1, 'lg' => 2]),
                     TextInput::make("etsy_redirect_uri_{$siteId}")
-                        ->label('Redirect URI (kopieer naar Etsy app-instellingen)')
-                        ->helperText('Voeg deze URL exact toe als "Callback URL" in https://www.etsy.com/developers/your-apps zodat de OAuth-koppeling werkt.')
+                        ->label(__('Redirect URI (kopieer naar Etsy app-instellingen)'))
+                        ->helperText(__('Voeg deze URL exact toe als "Callback URL" in https://www.etsy.com/developers/your-apps zodat de OAuth-koppeling werkt.'))
                         ->default($redirectUri)
                         ->readOnly()
                         ->dehydrated(false)
                         ->extraAttributes(['onclick' => 'this.select()'])
                         ->columnSpan(['default' => 1, 'lg' => 2]),
                     TextInput::make("etsy_client_id_{$siteId}")
-                        ->label('Etsy keystring (client_id)')
+                        ->label(__('Etsy keystring (client_id)'))
                         ->maxLength(255),
                     TextInput::make("etsy_client_secret_{$siteId}")
-                        ->label('Etsy shared secret')
+                        ->label(__('Etsy shared secret'))
                         ->password()
                         ->revealable()
                         ->maxLength(255),
                     TextInput::make("etsy_shop_id_{$siteId}")
-                        ->label('Etsy shop_id (handmatig invullen als auto-fetch faalt)')
-                        ->helperText('Vind je shop_id op https://www.etsy.com/your/shops/me/onboarding/index of in een API-response. Wordt automatisch ingevuld na succesvolle OAuth-koppeling.')
+                        ->label(__('Etsy shop_id (handmatig invullen als auto-fetch faalt)'))
+                        ->helperText(__('Vind je shop_id op https://www.etsy.com/your/shops/me/onboarding/index of in een API-response. Wordt automatisch ingevuld na succesvolle OAuth-koppeling.'))
                         ->numeric()
                         ->columnSpan(['default' => 1, 'lg' => 2]),
                 ])
@@ -106,7 +106,7 @@ class EtsySettingsPage extends Page
         }
 
         Notification::make()
-            ->title('De Etsy instellingen zijn opgeslagen')
+            ->title(__('De Etsy instellingen zijn opgeslagen'))
             ->success()
             ->send();
 
@@ -132,8 +132,8 @@ class EtsySettingsPage extends Page
         foreach (Sites::getSites() as $site) {
             $siteId = (string) $site['id'];
             $label = Etsy::isConnected($siteId)
-                ? 'Opnieuw verbinden ('.$site['name'].')'
-                : 'Verbind '.$site['name'].' met Etsy';
+                ? __('Opnieuw verbinden (:naam)', ['naam' => $site['name']])
+                : __('Verbind :naam met Etsy', ['naam' => $site['name']]);
 
             // Plain GET link i.p.v. ->action() omdat Livewire externe
             // redirects niet doorlaat na een action-callback. De
@@ -146,20 +146,20 @@ class EtsySettingsPage extends Page
 
             if (Etsy::isConnected($siteId) && ! Etsy::shopId($siteId)) {
                 $actions[] = Action::make("etsy_sync_shop_{$siteId}")
-                    ->label('Werk shop_id bij ('.$site['name'].')')
+                    ->label(__('Werk shop_id bij (:naam)', ['naam' => $site['name']]))
                     ->icon('heroicon-o-arrow-path')
                     ->color('warning')
                     ->action(function () use ($siteId, $site) {
                         $shopId = Etsy::syncShopId($siteId);
                         if ($shopId) {
                             Notification::make()
-                                ->title('Shop_id opgehaald: '.$shopId)
+                                ->title(__('Shop_id opgehaald: :id', ['id' => $shopId]))
                                 ->success()
                                 ->send();
                         } else {
                             Notification::make()
-                                ->title('Kon shop_id niet ophalen voor '.$site['name'])
-                                ->body('Check de connection-error en/of laravel.log voor de API-respons.')
+                                ->title(__('Kon shop_id niet ophalen voor :naam', ['naam' => $site['name']]))
+                                ->body(__('Check de connection-error en/of laravel.log voor de API-respons.'))
                                 ->danger()
                                 ->send();
                         }
@@ -170,13 +170,13 @@ class EtsySettingsPage extends Page
                 // shop_id-check zit in Etsy::syncOrders zelf zodat de admin
                 // ook een duidelijke melding krijgt als shop_id ontbreekt.
                 $actions[] = Action::make("etsy_sync_orders_{$siteId}")
-                    ->label('Sync bestellingen ('.$site['name'].')')
+                    ->label(__('Sync bestellingen (:naam)', ['naam' => $site['name']]))
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('success')
                     ->requiresConfirmation()
-                    ->modalHeading('Etsy bestellingen nu syncen?')
-                    ->modalDescription('Haalt nieuwe receipts op vanaf de laatste-sync-cursor en maakt of update Dashed orders. Bestaande orders worden niet dubbel aangemaakt.')
-                    ->modalSubmitActionLabel('Sync nu')
+                    ->modalHeading(__('Etsy bestellingen nu syncen?'))
+                    ->modalDescription(__('Haalt nieuwe receipts op vanaf de laatste-sync-cursor en maakt of update Dashed orders. Bestaande orders worden niet dubbel aangemaakt.'))
+                    ->modalSubmitActionLabel(__('Sync nu'))
                     ->action(function () use ($siteId, $site) {
                         $result = Etsy::syncOrders($siteId);
                         $imported = (int) ($result['imported'] ?? 0);
@@ -185,7 +185,7 @@ class EtsySettingsPage extends Page
 
                         if (! empty($errors)) {
                             Notification::make()
-                                ->title($site['name'].': '.$imported.' nieuw, '.$skipped.' al bekend, '.count($errors).' fouten')
+                                ->title(__('Resultaat voor :naam - :nieuw nieuw, :bekend al bekend, :fouten fouten', ['naam' => $site['name'], 'nieuw' => $imported, 'bekend' => $skipped, 'fouten' => count($errors)]))
                                 ->body(implode("\n", array_slice($errors, 0, 3)))
                                 ->warning()
                                 ->send();
@@ -194,7 +194,7 @@ class EtsySettingsPage extends Page
                         }
 
                         Notification::make()
-                            ->title($site['name'].': '.$imported.' nieuw, '.$skipped.' al bekend')
+                            ->title(__('Resultaat voor :naam - :nieuw nieuw, :bekend al bekend', ['naam' => $site['name'], 'nieuw' => $imported, 'bekend' => $skipped]))
                             ->success()
                             ->send();
                     });
