@@ -417,6 +417,10 @@ class Etsy
         // als omzet meetelt en total/btw/regels onderling kloppen.
         $order->total = round($lineTotal, 2);
         $order->vat_percentages = array_map(fn ($v) => round((float) $v, 2), $vatPercentages);
+        // Etsy-transactiekosten: percentage over het hele orderbedrag, inclusief
+        // verzendkosten (zit in total) en cadeauverpakking (geen eigen orderregel).
+        $giftWrap = self::amount($receipt['gift_wrap_price'] ?? null);
+        $order->etsy_order_commission = EtsyCommission::forAmount((float) $order->total + $giftWrap, $siteId);
         $order->save();
 
         // OrderPayment altijd paid voor Etsy bestellingen

@@ -2,6 +2,17 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.4.0 - 2026-09-30
+
+### Added
+- **Etsy-commissie per order** in de nieuwe kolom `dashed__orders.etsy_order_commission` (nullable decimal, net als `bol_order_commission`). Etsy rekent transactiekosten over het hele orderbedrag, inclusief doorberekende verzendkosten en cadeauverpakking. `Etsy::syncOrder()` zet bij een nieuwe order `round(|total + gift_wrap_price| × percentage / 100, 2)`; `total` is de som van de eigen orderregels (producten + verzending). Het bedrag is de fee zelf, zonder de btw die Etsy daarover factureert.
+- **Instelling "Etsy-transactiekosten (%)"** per site op de Etsy-instellingenpagina (`etsy_commission_percentage`, standaard 6,5). Logica in `Classes\EtsyCommission`.
+- **Creditorders tellen de commissie terug.** Etsy stort de fee bij een retour terug. Net als bij Bol draagt een creditorder hetzelfde positieve bedrag als het origineel: `markAsCancelledWithCredit()` repliceert het al mee, en een `Order::creating`-hook vult het aan als het origineel nog leeg was.
+- **Dashboardwidget "Statistieken vanuit Etsy"** (`EtsyOrderStats`, zelfde opzet als `BolOrderStats`): aantal bestellingen zonder creditorders, omzet en de commissie na retouren (creditorders negatief). Alleen betaalde orders en retouren tellen mee; alleen geregistreerd als er Etsy-orders zijn.
+
+### Migration
+- `2026_09_30_120000_add_etsy_order_commission_to_orders` voegt de kolom toe en vult bestaande betaalde Etsy-orders en daarna hun creditorders aan via `EtsyCommission::backfill()` (idempotent, overschrijft nooit een gevulde waarde; geannuleerde orders blijven leeg).
+
 ## v4.2.4 - 2026-05-11
 
 ### Changed

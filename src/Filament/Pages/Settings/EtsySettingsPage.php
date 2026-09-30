@@ -14,6 +14,7 @@ use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 use Filament\Infolists\Components\TextEntry;
 use Dashed\DashedCore\Traits\HasSettingsPermission;
+use Dashed\DashedEcommerceEtsy\Classes\EtsyCommission;
 
 class EtsySettingsPage extends Page
 {
@@ -35,6 +36,7 @@ class EtsySettingsPage extends Page
             $formData["etsy_client_id_{$siteId}"] = Customsetting::get('etsy_client_id', $siteId);
             $formData["etsy_client_secret_{$siteId}"] = Customsetting::get('etsy_client_secret', $siteId);
             $formData["etsy_shop_id_{$siteId}"] = Customsetting::get('etsy_shop_id', $siteId);
+            $formData["etsy_commission_percentage_{$siteId}"] = EtsyCommission::percentage($siteId);
             $formData["etsy_redirect_uri_{$siteId}"] = url('/dashed/etsy/oauth/callback?site_id='.urlencode($siteId));
         }
 
@@ -85,6 +87,14 @@ class EtsySettingsPage extends Page
                         ->helperText(__('Vind je shop_id op https://www.etsy.com/your/shops/me/onboarding/index of in een API-response. Wordt automatisch ingevuld na succesvolle OAuth-koppeling.'))
                         ->numeric()
                         ->columnSpan(['default' => 1, 'lg' => 2]),
+                    TextInput::make("etsy_commission_percentage_{$siteId}")
+                        ->label(__('Etsy-transactiekosten (%)'))
+                        ->helperText(__('Percentage dat Etsy per verkoop inhoudt over het hele orderbedrag, inclusief verzendkosten en cadeauverpakking. Wordt bij het importeren van een bestelling als commissie op de order gezet. Standaard 6,5.'))
+                        ->numeric()
+                        ->minValue(0)
+                        ->maxValue(100)
+                        ->step(0.01)
+                        ->suffix('%'),
                 ])
                 ->columns(['default' => 1, 'lg' => 2]);
         }
@@ -99,6 +109,8 @@ class EtsySettingsPage extends Page
             $siteId = (string) $site['id'];
             Customsetting::set('etsy_client_id', $state["etsy_client_id_{$siteId}"] ?? '', $siteId);
             Customsetting::set('etsy_client_secret', $state["etsy_client_secret_{$siteId}"] ?? '', $siteId);
+            $percentage = $state["etsy_commission_percentage_{$siteId}"] ?? null;
+            Customsetting::set(EtsyCommission::SETTING, is_numeric($percentage) ? (float) $percentage : EtsyCommission::DEFAULT_PERCENTAGE, $siteId);
             $manualShopId = trim((string) ($state["etsy_shop_id_{$siteId}"] ?? ''));
             if ($manualShopId !== '') {
                 Customsetting::set('etsy_shop_id', $manualShopId, $siteId);

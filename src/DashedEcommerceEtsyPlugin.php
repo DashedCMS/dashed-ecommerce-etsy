@@ -4,6 +4,9 @@ namespace Dashed\DashedEcommerceEtsy;
 
 use Filament\Panel;
 use Filament\Contracts\Plugin;
+use Illuminate\Support\Facades\Schema;
+use Dashed\DashedEcommerceCore\Models\Order;
+use Dashed\DashedEcommerceEtsy\Filament\Widgets\EtsyOrderStats;
 use Dashed\DashedEcommerceEtsy\Filament\Pages\Settings\EtsySettingsPage;
 
 class DashedEcommerceEtsyPlugin implements Plugin
@@ -15,7 +18,15 @@ class DashedEcommerceEtsyPlugin implements Plugin
 
     public function register(Panel $panel): void
     {
-        $panel->pages([EtsySettingsPage::class]);
+        $widgets = [];
+
+        if (Schema::hasTable('dashed__orders') && Order::where('order_origin', 'etsy')->exists()) {
+            $widgets[] = EtsyOrderStats::class;
+        }
+
+        $panel
+            ->widgets($widgets)
+            ->pages([EtsySettingsPage::class]);
     }
 
     public function boot(Panel $panel): void

@@ -4,8 +4,10 @@ namespace Dashed\DashedEcommerceEtsy;
 
 use Spatie\LaravelPackageTools\Package;
 use Illuminate\Console\Scheduling\Schedule;
+use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedTranslations\Models\Translation;
 use Dashed\DashedEcommerceCore\Classes\OrderOrigins;
+use Dashed\DashedEcommerceEtsy\Classes\EtsyCommission;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Dashed\DashedEcommerceEtsy\Commands\RefreshEtsyToken;
 use Dashed\DashedEcommerceEtsy\Commands\SyncShipmentsToEtsy;
@@ -19,6 +21,11 @@ class DashedEcommerceEtsyServiceProvider extends PackageServiceProvider
     public function bootingPackage(): void
     {
         OrderOrigins::register('etsy', 'Etsy', true);
+
+        // Een creditorder (retour/annulering met creditfactuur) van een Etsy-order
+        // draagt dezelfde positieve commissie als het origineel, zodat rapportages
+        // hem kunnen aftrekken: Etsy stort de fee bij een retour terug.
+        Order::creating(fn (Order $order) => EtsyCommission::fillCreditOrder($order));
 
         $this->app->booted(function () {
             $schedule = app(Schedule::class);
