@@ -59,7 +59,7 @@ class EtsyOrderStats extends StatsOverviewWidget
             StatsOverviewWidget\Stat::make('Aantal bestellingen vanuit Etsy', $etsyOrders()->whereNull('credit_for_order_id')->count()),
             StatsOverviewWidget\Stat::make('Omzet vanuit Etsy', CurrencyHelper::formatPrice($etsyOrders()->sum('total'))),
             StatsOverviewWidget\Stat::make('Totale commissie aan Etsy', CurrencyHelper::formatPrice($commissie))
-                ->description('Na retouren, excl. btw over de fee'),
+                ->description(__('Na retouren, excl. btw over de fee')),
         ];
     }
 }
