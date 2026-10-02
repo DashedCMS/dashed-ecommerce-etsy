@@ -72,6 +72,7 @@ class DashedEcommerceEtsyServiceProvider extends PackageServiceProvider
 
         $package
             ->name('dashed-ecommerce-etsy')
+            ->hasTranslations()
             ->hasRoutes(['oauth'])
             ->hasCommands([
                 SyncOrdersFromEtsyCommand::class,
