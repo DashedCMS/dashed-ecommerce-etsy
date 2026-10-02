@@ -18,6 +18,7 @@ use Dashed\DashedEcommerceEtsy\Classes\EtsyCommission;
 
 class EtsySettingsPage extends Page
 {
+    use \Dashed\DashedCore\Filament\Concerns\TranslatesPageLabels;
     use HasSettingsPermission;
 
     protected static bool $shouldRegisterNavigation = false;
