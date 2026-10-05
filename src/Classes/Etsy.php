@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Dashed\DashedCore\Models\Customsetting;
 use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceCore\Models\Product;
+use Dashed\DashedEcommerceCore\Classes\OssVat;
 use Dashed\DashedEcommerceCore\Models\OrderLog;
 use Dashed\DashedEcommerceCore\Models\OrderPayment;
 use Dashed\DashedEcommerceCore\Models\OrderProduct;
@@ -408,7 +409,10 @@ class Etsy
         foreach ($order->orderProducts as $op) {
             $btwTotal += (float) $op->btw;
             $lineTotal += (float) $op->price;
-            $rate = (string) ((int) ($op->vat_rate ?? 21));
+            // Tariefsleutel zonder afronden: bij OSS kan het landtarief een decimaal hebben (dashed-ecommerce-core >= v4.149.0).
+            $rate = class_exists(OssVat::class)
+                ? OssVat::rateKey((float) ($op->vat_rate ?? 21))
+                : (string) ((int) ($op->vat_rate ?? 21));
             $vatPercentages[$rate] = ($vatPercentages[$rate] ?? 0.0) + (float) $op->btw;
         }
         $order->btw = round($btwTotal, 2);

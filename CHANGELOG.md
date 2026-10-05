@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.5.0 - 2026-10-05
+
+### Changed
+- Etsy-orders naar een ander EU-land volgen de OSS-instelling van dashed-ecommerce-core (>= v4.149.0): product- en verzendregels krijgen daar het btw-tarief van het afleverland, en `vat_percentages` gebruikt dat tarief als sleutel (ook met een decimaal). Zonder de instelling, of met een oudere dashed-ecommerce-core, verandert er niets.
+
 ## v4.4.0 - 2026-09-30
 
 ### Added
