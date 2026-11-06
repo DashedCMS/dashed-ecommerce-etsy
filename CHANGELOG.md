@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## v4.6.1 - 2026-11-06
+
+### Changed
+- Geplande taken draaien alleen met een verbinding en werk. Widget doet geen orderquery meer bij elke opstart.
+
 ## v4.5.0 - 2026-10-05
 
 ### Changed

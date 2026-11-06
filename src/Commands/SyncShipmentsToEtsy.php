@@ -3,7 +3,6 @@
 namespace Dashed\DashedEcommerceEtsy\Commands;
 
 use Illuminate\Console\Command;
-use Dashed\DashedEcommerceCore\Models\Order;
 use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 
 class SyncShipmentsToEtsy extends Command
@@ -14,13 +13,7 @@ class SyncShipmentsToEtsy extends Command
 
     public function handle(): int
     {
-        $pending = Order::query()
-            ->whereNotNull('etsy_receipt_id')
-            ->whereNull('etsy_track_and_trace_pushed_at')
-            ->whereNull('etsy_track_and_trace_error')
-            ->with('trackAndTraces')
-            ->get()
-            ->filter(fn (Order $o) => $o->trackAndTraces->isNotEmpty());
+        $pending = Etsy::pendingShipmentsQuery()->with('trackAndTraces')->get();
 
         if ($pending->isEmpty()) {
             $this->info('Geen orders met openstaande T&T-push.');

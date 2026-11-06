@@ -29,9 +29,9 @@ class DashedEcommerceEtsyServiceProvider extends PackageServiceProvider
 
         $this->app->booted(function () {
             $schedule = app(Schedule::class);
-            $schedule->command(RefreshEtsyToken::class)->everyThirtyMinutes()->withoutOverlapping();
-            $schedule->command(SyncOrdersFromEtsyCommand::class)->everyFiveMinutes()->withoutOverlapping();
-            $schedule->command(SyncShipmentsToEtsy::class)->everyFiveMinutes()->withoutOverlapping();
+            $schedule->command(RefreshEtsyToken::class)->everyThirtyMinutes()->when(fn () => \Dashed\DashedEcommerceEtsy\Classes\Etsy::hasConnectedSite())->withoutOverlapping();
+            $schedule->command(SyncOrdersFromEtsyCommand::class)->everyFiveMinutes()->when(fn () => \Dashed\DashedEcommerceEtsy\Classes\Etsy::hasConnectedSite())->withoutOverlapping();
+            $schedule->command(SyncShipmentsToEtsy::class)->everyFiveMinutes()->when(fn () => \Dashed\DashedEcommerceEtsy\Classes\Etsy::hasPendingShipments())->withoutOverlapping();
         });
 
         cms()->registerSettingsPage(EtsySettingsPage::class, 'Etsy', 'shopping-bag', 'Koppel Etsy');

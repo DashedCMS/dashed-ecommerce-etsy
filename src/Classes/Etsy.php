@@ -41,6 +41,29 @@ class Etsy
             && Customsetting::get('etsy_refresh_token', $siteId);
     }
 
+    public static function hasConnectedSite(): bool
+    {
+        return rescue(
+            fn () => collect(Sites::getSites())->contains(fn ($site) => self::isConnected((string) $site['id'])),
+            true,
+            false,
+        );
+    }
+
+    public static function pendingShipmentsQuery(): Builder
+    {
+        return Order::query()
+            ->whereNotNull('etsy_receipt_id')
+            ->whereNull('etsy_track_and_trace_pushed_at')
+            ->whereNull('etsy_track_and_trace_error')
+            ->whereHas('trackAndTraces');
+    }
+
+    public static function hasPendingShipments(): bool
+    {
+        return rescue(fn () => self::pendingShipmentsQuery()->exists(), true, false);
+    }
+
     public static function clientId(?string $siteId = null): ?string
     {
         return Customsetting::get('etsy_client_id', $siteId ?? Sites::getActive()) ?: null;
