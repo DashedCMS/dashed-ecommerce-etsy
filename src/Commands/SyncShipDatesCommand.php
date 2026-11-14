@@ -14,6 +14,12 @@ class SyncShipDatesCommand extends Command
 
     public function handle(): int
     {
+        if (! defined(Order::class.'::DEADLINE_DONE_FULFILLMENT_STATUSES')) {
+            $this->warn('Deze versie van dashed-ecommerce-core kent geen verzenddeadline.');
+
+            return self::SUCCESS;
+        }
+
         $orders = Order::query()
             ->whereNotNull('etsy_receipt_id')
             ->where('etsy_receipt_id', '!=', '')
