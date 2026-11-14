@@ -3,8 +3,8 @@
 namespace Dashed\DashedEcommerceEtsy\Commands;
 
 use Illuminate\Console\Command;
-use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 use Dashed\DashedEcommerceCore\Models\Order;
+use Dashed\DashedEcommerceEtsy\Classes\Etsy;
 
 class SyncShipDatesCommand extends Command
 {
