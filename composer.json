@@ -18,6 +18,7 @@
     ],
     "require": {
         "php": "^8.3|^8.4",
+        "dashed/dashed-ecommerce-core": "^4.193",
         "spatie/laravel-package-tools": "^1.16"
     },
     "autoload": {

@@ -2,6 +2,11 @@
 
 All notable changes to `dashed-ecommerce-etsy` will be documented in this file.
 
+## Unreleased
+
+### Added
+- Etsy-orders krijgen een verzenddeadline (`ship_by_date`, bron `etsy`) uit `expected_ship_date` van de receipt (vroegste transactie). Nieuwe orders vullen hem bij import, `etsy:sync-ship-dates` vult bestaande open orders aan. Vereist dashed-ecommerce-core >= v4.193.
+
 ## v4.6.1 - 2026-11-06
 
 ### Changed

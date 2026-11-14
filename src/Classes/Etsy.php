@@ -465,6 +465,8 @@ class Etsy
         // OrderOrigins::channelsFor('etsy')), stock-aftrek en OrderMarkedAsPaidEvent.
         $order->changeStatus('paid');
 
+        rescue(fn () => self::applyShipByDate($order, $receipt));
+
         // Auto MyParcel-koppeling als die package geïnstalleerd én geconnect is
         if (class_exists(MyParcel::class)) {
             try {
@@ -478,6 +480,78 @@ class Etsy
         }
 
         return $order->fresh() ?? $order;
+    }
+
+    /**
+     * Earliest expected ship date (unix timestamps, Europe/Amsterdam) over the
+     * receipt transactions, falling back to the receipt itself.
+     *
+     * @param  array<string, mixed>  $receipt
+     */
+    public static function earliestShipDate(array $receipt): ?Carbon
+    {
+        $timestamps = [];
+        foreach (($receipt['transactions'] ?? []) as $transaction) {
+            $value = $transaction['expected_ship_date'] ?? null;
+            if (is_numeric($value) && (int) $value > 0) {
+                $timestamps[] = (int) $value;
+            }
+        }
+
+        if (empty($timestamps)) {
+            $value = $receipt['expected_ship_date'] ?? null;
+            if (is_numeric($value) && (int) $value > 0) {
+                $timestamps[] = (int) $value;
+            }
+        }
+
+        if (empty($timestamps)) {
+            return null;
+        }
+
+        return Carbon::createFromTimestamp(min($timestamps))->timezone('Europe/Amsterdam')->startOfDay();
+    }
+
+    /**
+     * @param  array<string, mixed>  $receipt
+     */
+    protected static function applyShipByDate(Order $order, array $receipt): bool
+    {
+        if (! method_exists($order, 'setShippingDeadline')) {
+            return false;
+        }
+
+        $date = self::earliestShipDate($receipt);
+        if (! $date) {
+            return false;
+        }
+
+        $order->setShippingDeadline($date, null, 'etsy');
+
+        return true;
+    }
+
+    /**
+     * Fetch the receipt again and store its ship-by date on the order.
+     */
+    public static function syncShipByDate(Order $order): bool
+    {
+        if (! $order->etsy_receipt_id || ! method_exists($order, 'setShippingDeadline')) {
+            return false;
+        }
+
+        $siteId = $order->site_id ?: Sites::getActive();
+        $shopId = $order->etsy_shop_id ?: self::shopId($siteId);
+        if (! $shopId) {
+            return false;
+        }
+
+        $response = self::api($siteId, 'get', "/application/shops/{$shopId}/receipts/{$order->etsy_receipt_id}");
+        if (! $response->successful()) {
+            return false;
+        }
+
+        return self::applyShipByDate($order, $response->json() ?? []);
     }
 
     public static function pushTrackAndTrace(Order $order): bool

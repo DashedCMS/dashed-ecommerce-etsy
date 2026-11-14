@@ -11,6 +11,7 @@ use Dashed\DashedEcommerceEtsy\Classes\EtsyCommission;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Dashed\DashedEcommerceEtsy\Commands\RefreshEtsyToken;
 use Dashed\DashedEcommerceEtsy\Commands\SyncShipmentsToEtsy;
+use Dashed\DashedEcommerceEtsy\Commands\SyncShipDatesCommand;
 use Dashed\DashedEcommerceEtsy\Commands\SyncOrdersFromEtsyCommand;
 use Dashed\DashedEcommerceEtsy\Filament\Pages\Settings\EtsySettingsPage;
 
@@ -78,6 +79,7 @@ class DashedEcommerceEtsyServiceProvider extends PackageServiceProvider
                 SyncOrdersFromEtsyCommand::class,
                 RefreshEtsyToken::class,
                 SyncShipmentsToEtsy::class,
+                SyncShipDatesCommand::class,
             ]);
 
         cms()->builder('plugins', [new DashedEcommerceEtsyPlugin()]);
